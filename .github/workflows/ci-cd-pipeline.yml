@@ -74,6 +74,7 @@ jobs:
         run: npm run build
 
   # --- 2. Test Stage (Backend) ---
+  # --- 2. Test Stage (Backend) ---
   backend-tests:
     name: Run Backend Tests
     runs-on: ubuntu-latest
@@ -96,17 +97,27 @@ jobs:
           php-version: '8.3'
           extensions: mbstring, pdo_mysql, tokenizer, xml, ctype
 
-      # FIX: Install dependencies without running scripts on subsequent jobs, as we only need the compiled files
       - name: Install Composer Dependencies
         run: composer install --no-progress --prefer-dist --optimize-autoloader --no-scripts
         
-      # Setup minimal environment for testing
+      # FIX: Add steps to create storage directories and set permissions
+      - name: Create Storage Directories & Permissions
+        run: |
+          mkdir -p storage/framework/cache
+          mkdir -p storage/framework/sessions
+          mkdir -p storage/framework/views
+          mkdir -p storage/app/public
+          chmod -R 777 storage bootstrap/cache
+          
+      # Setup minimal environment for testing (now runs after directories are created)
       - name: Setup Laravel Testing Environment
         run: |
           cp .env.example .env
           php artisan key:generate
-          # You may need to configure a test database connection here if tests interact with a database
-
+          # Since the CI tests usually use an in-memory or separate DB, 
+          # you might need to run migrations here if your tests require a database structure.
+          # php artisan migrate --env=testing # Uncomment and adjust if needed
+          
       - name: Run Laravel Tests
         run: php artisan test
 
