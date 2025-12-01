@@ -33,11 +33,9 @@ jobs:
           ini-values: post_max_size=256M, upload_max_filesize=256M
           coverage: none
 
-      # Install dependencies without running scripts
       - name: Install Composer Dependencies
         run: composer install --no-progress --prefer-dist --optimize-autoloader --no-scripts
       
-      # FIX: Create storage directories and set permissions
       - name: Create Storage Directories & Permissions
         run: |
           mkdir -p storage/framework/cache
@@ -46,7 +44,6 @@ jobs:
           mkdir -p storage/app/public
           chmod -R 777 storage bootstrap/cache
 
-      # Setup environment, generate key, and run package discovery
       - name: Setup Laravel Environment & Key
         run: |
           cp .env.example .env
@@ -98,7 +95,6 @@ jobs:
       - name: Install Composer Dependencies
         run: composer install --no-progress --prefer-dist --optimize-autoloader --no-scripts
         
-      # FIX: Create storage directories and set permissions
       - name: Create Storage Directories & Permissions
         run: |
           mkdir -p storage/framework/cache
@@ -111,15 +107,17 @@ jobs:
         run: |
           cp .env.example .env
           php artisan key:generate
-          # Create a testing SQLite file (if using SQLite for tests)
           touch database/database.sqlite
           
-      # FIX: Run Migrations before tests to create necessary tables
       - name: Run Database Migrations for Tests
         run: php artisan migrate --force
+        env:
+          DB_CONNECTION: sqlite # FIX: Force SQLite connection for CI testing
           
       - name: Run Laravel Tests
         run: php artisan test
+        env:
+          DB_CONNECTION: sqlite # FIX: Force SQLite connection for CI testing
 
   # --- 3. Test Stage (UI/E2E) ---
   ui-tests:
@@ -160,13 +158,16 @@ jobs:
       - name: Install Node Dependencies
         run: npm install
 
-      # FIX: Explicitly install the Cypress binary
       - name: Install Cypress Binary
         run: npx cypress install
         
+      # FIX: Rename config file to .cjs to support 'require'
+      - name: Rename Cypress Config for CommonJS
+        run: mv cypress.config.js cypress.config.cjs || true
+
       - name: Run Cypress UI Tests
         run: npx cypress run
-
+        
   # --- 4. Staging Stage (Deployment) ---
   deploy-staging:
     name: Deploy to Staging
@@ -176,7 +177,6 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
-      # ... (Deployment steps remain the same) ...
       - name: Deploy via SSH to Staging Server
         uses: appleboy/ssh-action@v0.1.7
         with:
@@ -205,7 +205,6 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
-      # ... (Deployment steps remain the same) ...
       - name: Deploy via SSH to Production Server
         uses: appleboy/ssh-action@v0.1.7
         with:
