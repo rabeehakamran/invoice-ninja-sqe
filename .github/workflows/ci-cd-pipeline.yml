@@ -33,11 +33,11 @@ jobs:
           ini-values: post_max_size=256M, upload_max_filesize=256M
           coverage: none
 
-      # 1. Install dependencies without running scripts
+      # Install dependencies without running scripts
       - name: Install Composer Dependencies
         run: composer install --no-progress --prefer-dist --optimize-autoloader --no-scripts
       
-      # FIX: Create storage directories and set permissions *before* running Artisan
+      # FIX: Create storage directories and set permissions
       - name: Create Storage Directories & Permissions
         run: |
           mkdir -p storage/framework/cache
@@ -46,12 +46,11 @@ jobs:
           mkdir -p storage/app/public
           chmod -R 777 storage bootstrap/cache
 
-      # 2. Setup environment and generate key (this step previously failed)
+      # Setup environment, generate key, and run package discovery
       - name: Setup Laravel Environment & Key
         run: |
           cp .env.example .env
           php artisan key:generate
-          # Now run the package discover script which was skipped earlier
           php artisan package:discover --ansi
 
       - name: Set up Node.js
@@ -73,7 +72,6 @@ jobs:
       - name: Build Frontend Assets
         run: npm run build
 
-  # --- 2. Test Stage (Backend) ---
   # --- 2. Test Stage (Backend) ---
   backend-tests:
     name: Run Backend Tests
@@ -100,7 +98,7 @@ jobs:
       - name: Install Composer Dependencies
         run: composer install --no-progress --prefer-dist --optimize-autoloader --no-scripts
         
-      # FIX: Add steps to create storage directories and set permissions
+      # FIX: Create storage directories and set permissions
       - name: Create Storage Directories & Permissions
         run: |
           mkdir -p storage/framework/cache
@@ -109,14 +107,16 @@ jobs:
           mkdir -p storage/app/public
           chmod -R 777 storage bootstrap/cache
           
-      # Setup minimal environment for testing (now runs after directories are created)
       - name: Setup Laravel Testing Environment
         run: |
           cp .env.example .env
           php artisan key:generate
-          # Since the CI tests usually use an in-memory or separate DB, 
-          # you might need to run migrations here if your tests require a database structure.
-          # php artisan migrate --env=testing # Uncomment and adjust if needed
+          # Create a testing SQLite file (if using SQLite for tests)
+          touch database/database.sqlite
+          
+      # FIX: Run Migrations before tests to create necessary tables
+      - name: Run Database Migrations for Tests
+        run: php artisan migrate --force
           
       - name: Run Laravel Tests
         run: php artisan test
@@ -160,6 +160,10 @@ jobs:
       - name: Install Node Dependencies
         run: npm install
 
+      # FIX: Explicitly install the Cypress binary
+      - name: Install Cypress Binary
+        run: npx cypress install
+        
       - name: Run Cypress UI Tests
         run: npx cypress run
 
@@ -172,7 +176,7 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
-
+      # ... (Deployment steps remain the same) ...
       - name: Deploy via SSH to Staging Server
         uses: appleboy/ssh-action@v0.1.7
         with:
@@ -201,7 +205,7 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
-
+      # ... (Deployment steps remain the same) ...
       - name: Deploy via SSH to Production Server
         uses: appleboy/ssh-action@v0.1.7
         with:
