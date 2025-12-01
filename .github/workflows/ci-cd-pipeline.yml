@@ -33,15 +33,26 @@ jobs:
           ini-values: post_max_size=256M, upload_max_filesize=256M
           coverage: none
 
-      # FIX: Use --no-scripts to prevent the failing 'php artisan package:discover'
+      # 1. Install dependencies without running scripts
       - name: Install Composer Dependencies
         run: composer install --no-progress --prefer-dist --optimize-autoloader --no-scripts
+      
+      # FIX: Create storage directories and set permissions *before* running Artisan
+      - name: Create Storage Directories & Permissions
+        run: |
+          mkdir -p storage/framework/cache
+          mkdir -p storage/framework/sessions
+          mkdir -p storage/framework/views
+          mkdir -p storage/app/public
+          chmod -R 777 storage bootstrap/cache
 
-      # FIX: Manually set up the Laravel environment needed for subsequent steps
+      # 2. Setup environment and generate key (this step previously failed)
       - name: Setup Laravel Environment & Key
         run: |
           cp .env.example .env
           php artisan key:generate
+          # Now run the package discover script which was skipped earlier
+          php artisan package:discover --ansi
 
       - name: Set up Node.js
         uses: actions/setup-node@v3
