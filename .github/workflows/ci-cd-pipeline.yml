@@ -11,6 +11,7 @@ on:
 jobs:
   # --- 1. Setup/Build Stage ---
   setup-environment:
+    # ... (No changes here, setup is stable) ...
     name: Setup Environment
     runs-on: ubuntu-latest
     steps:
@@ -94,7 +95,14 @@ jobs:
 
       - name: Install Composer Dependencies
         run: composer install --no-progress --prefer-dist --optimize-autoloader --no-scripts
-        
+      
+      # FIX: Install Doctrine DBAL for SQLite Migrations
+      - name: Install Doctrine DBAL for SQLite Migrations
+        run: composer require doctrine/dbal --dev --no-update 
+
+      - name: Run Composer Update (to process new dependency)
+        run: composer update doctrine/dbal --no-progress --no-scripts
+
       - name: Create Storage Directories & Permissions
         run: |
           mkdir -p storage/framework/cache
@@ -112,12 +120,12 @@ jobs:
       - name: Run Database Migrations for Tests
         run: php artisan migrate --force
         env:
-          DB_CONNECTION: sqlite # FIX: Force SQLite connection for CI testing
+          DB_CONNECTION: sqlite 
           
       - name: Run Laravel Tests
         run: php artisan test
         env:
-          DB_CONNECTION: sqlite # FIX: Force SQLite connection for CI testing
+          DB_CONNECTION: sqlite
 
   # --- 3. Test Stage (UI/E2E) ---
   ui-tests:
@@ -161,10 +169,14 @@ jobs:
       - name: Install Cypress Binary
         run: npx cypress install
         
-      # FIX: Rename config file to .cjs to support 'require'
+      # FIX 1: Rename main config file to .cjs
       - name: Rename Cypress Config for CommonJS
         run: mv cypress.config.js cypress.config.cjs || true
 
+      # FIX 2: Rename the plugin file to .cjs
+      - name: Rename Cypress Plugin File for CommonJS
+        run: mv tests/cypress/plugins/index.js tests/cypress/plugins/index.cjs || true
+        
       - name: Run Cypress UI Tests
         run: npx cypress run
         
