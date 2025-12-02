@@ -10,6 +10,7 @@ on:
 
 jobs:
   # --- 1. Setup/Build Stage (Dependencies install honge) ---
+  # Please run
   setup-environment:
     # ... (Aapka poora setup-environment job yahan aayega) ...
     name: Setup Environment
