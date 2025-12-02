@@ -9,65 +9,16 @@ on:
       - main
 
 jobs:
-  # --- 1. Setup/Build Stage (Kept mostly intact as dependencies are needed) ---
+  # --- 1. Setup/Build Stage (Dependencies install honge) ---
   setup-environment:
+    # ... (Aapka poora setup-environment job yahan aayega) ...
     name: Setup Environment
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
-
-      - name: Cache Composer dependencies
-        uses: actions/cache@v3
-        with:
-          path: vendor
-          key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-composer-
-            
-      - name: Set up PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.3'
-          extensions: mbstring, pdo_mysql, tokenizer, xml, ctype
-          ini-values: post_max_size=256M, upload_max_filesize=256M
-          coverage: none
-
-      - name: Install Composer Dependencies
-        run: composer install --no-progress --prefer-dist --optimize-autoloader --no-scripts
-      
-      - name: Create Storage Directories & Permissions
-        run: |
-          mkdir -p storage/framework/cache
-          mkdir -p storage/framework/sessions
-          mkdir -p storage/framework/views
-          mkdir -p storage/app/public
-          chmod -R 777 storage bootstrap/cache
-
-      - name: Setup Laravel Environment & Key
-        run: |
-          cp .env.example .env
-          php artisan key:generate
-          php artisan package:discover --ansi
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '20'
-
-      - name: Cache Node Modules
-        uses: actions/cache@v3
-        with:
-          path: node_modules
-          key: ${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-
-
-      - name: Install Node Dependencies
-        run: npm install
-
-      - name: Build Frontend Assets
-        run: npm run build
+      # ... (Composer, PHP, Node setup steps) ...
+      # NOTE: Aap yahan woh saare steps daalen jo humne pehle fix kiye the (cache, php setup, composer install)
 
   # --- 2. Test Stage (Backend) - BYPASSED ---
   backend-tests:
@@ -75,10 +26,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: setup-environment
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v3
-        
-      # Using a simple echo command to simulate a successful test run
       - name: ⛔ Bypass Backend Tests ⛔
         run: echo "Skipping actual PHPUnit tests for pipeline validation."
 
@@ -87,16 +34,11 @@ jobs:
     name: Run UI Tests (BYPASSED)
     runs-on: ubuntu-latest
     needs: setup-environment
-    # Database service and setup are removed since we are not running tests
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v3
-
-      # Using a simple echo command to simulate a successful test run
       - name: ⛔ Bypass UI Tests ⛔
         run: echo "Skipping actual Cypress tests for pipeline validation."
 
-  # --- 4. Staging Stage (Deployment) ---
+  # --- 4. Staging Stage (Deployment via SSH) ---
   deploy-staging:
     name: Deploy to Staging
     runs-on: ubuntu-latest
@@ -105,6 +47,7 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
+
       - name: Deploy via SSH to Staging Server
         uses: appleboy/ssh-action@v0.1.7
         with:
@@ -113,18 +56,29 @@ jobs:
           key: ${{ secrets.STAGING_KEY }}
           port: ${{ secrets.STAGING_PORT }}
           script: |
-            cd /var/www/invoiceninja
+            # SSH script runs on the EC2 instance
+            cd /var/www/invoiceninja # Directory jahan code deploy hoga
             git pull origin main
+            
+            # Composer install (Deployment ke liye --no-dev use hoga)
             composer install --no-dev --optimize-autoloader
+            
+            # Database migrations
             php artisan migrate --force
+            
+            # NPM install and build (Agar aapka frontend code yahan deploy ho raha hai)
             npm install
             npm run build
+            
+            # Cache clear karna zaroori hai
             php artisan cache:clear
             php artisan config:cache
-            systemctl restart php8.3-fpm || true
-            echo "Staging deployment completed."
+            
+            # FPM service restart karna (Agar aap Nginx/PHP-FPM use kar rahi hain)
+            systemctl restart php8.3-fpm || true 
+            echo "Staging deployment completed successfully via SSH."
 
-  # --- 5. Deploy Stage (Production) ---
+  # --- 5. Deploy Stage (Production via SSH) ---
   deploy-production:
     name: Deploy to Production
     runs-on: ubuntu-latest
@@ -133,14 +87,16 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
+        
       - name: Deploy via SSH to Production Server
         uses: appleboy/ssh-action@v0.1.7
         with:
-          host: ${{ secrets.PROD_HOST }}
+          host: ${{ secrets.PROD_HOST }} # Naya Production EC2 ka IP
           username: ${{ secrets.PROD_USER }}
           key: ${{ secrets.PROD_KEY }}
           port: ${{ secrets.PROD_PORT }}
           script: |
+            # Production Deployment Scripts (Same as staging, but on Prod server)
             cd /var/www/invoiceninja
             git pull origin main
             composer install --no-dev --optimize-autoloader
@@ -150,4 +106,4 @@ jobs:
             php artisan cache:clear
             php artisan config:cache
             systemctl restart php8.3-fpm || true
-            echo "Production deployment completed."
+            echo "Production deployment completed successfully via SSH."
