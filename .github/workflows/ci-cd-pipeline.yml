@@ -96,33 +96,34 @@ jobs:
       - name: Build Frontend Assets
         run: npm run build
 
-      - name: Create Deployment Package (tar.gz)
+      - name: Create Deployment Package (FAST)
         run: |
           ARTIFACT_NAME="invoice-ninja-${{ steps.get-version.outputs.version }}"
-    
-          echo "Creating deployment artifact: $ARTIFACT_NAME.tar.gz"
-
-          # Create a clean build directory
+          echo "Creating lightweight deployment artifact..."
+      
           mkdir build
-
-          # Copy required files/folders for Invoice Ninja deployment
+      
           rsync -av \
-          --exclude=".git" \
-          --exclude=".github" \
-          --exclude="node_modules" \
-          --exclude="tests" \
-          --exclude="docker" \
-          --exclude="*.log" \
-          --exclude="*.tar.gz" \
-          ./ build/
-
-          # Go into build directory and create tar
+            --exclude="vendor" \
+            --exclude="node_modules" \
+            --exclude="tests" \
+            --exclude=".git" \
+            --exclude=".github" \
+            --exclude="docker" \
+            --exclude="storage/logs" \
+            --exclude="storage/framework/cache/*" \
+            --exclude="storage/framework/sessions/*" \
+            --exclude="*.log" \
+            --exclude="*.tar.gz" \
+            ./ build/
+      
           cd build
           tar -czf "../$ARTIFACT_NAME.tar.gz" .
-      
           cd ..
-          echo "Artifact created successfully!"
+      
+          echo "Artifact ready!"
           ls -lh $ARTIFACT_NAME.tar.gz
+
 
       
       - name: Upload Build Artifact
