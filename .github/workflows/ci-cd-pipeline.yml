@@ -116,7 +116,7 @@ jobs:
           path: ./*.tar.gz
           retention-days: 7
           
-  # --- 2. Backend Tests (Database Connection Fix) ---
+  # --- 2. Backend Tests (With Targeted Test Execution) ---
   backend-tests:
     name: Run Backend Tests
     runs-on: ubuntu-latest
@@ -167,7 +167,6 @@ jobs:
       - name: Install Composer Dependencies (Disable Scripts)
         run: composer install --no-progress --prefer-dist --optimize-autoloader --no-scripts
       
-      # FIX: Explicit wait for DB connection
       - name: Wait for Database Service to be ready (127.0.0.1)
         run: |
           echo "Waiting for MariaDB (127.0.0.1:3306)..."
@@ -204,15 +203,23 @@ jobs:
           php artisan optimize || true
           php artisan migrate --force
           
+      - name: Run Default Unit Tests
+        run: vendor/bin/phpunit --testsuite Unit --colors=always --testdox
+        continue-on-error: true 
+
       - name: Run Custom SQE Unit Tests
         run: vendor/bin/phpunit tests/SQE/Unit --colors=always --testdox
         continue-on-error: true
 
+      - name: Run Default Feature Tests
+        run: vendor/bin/phpunit --testsuite Feature --colors=always --testdox
+        continue-on-error: true
+      
       - name: Run Custom SQE Feature Tests
         run: vendor/bin/phpunit tests/SQE/Feature --colors=always --testdox
         continue-on-error: true
 
-  # --- 3. UI (Cypress) Tests (Action Not Found Fix) ---
+  # --- 3. UI (Cypress) Tests (Fixing Wait Action) ---
   ui-tests:
     name: Run UI Tests
     runs-on: ubuntu-latest
@@ -301,13 +308,21 @@ jobs:
       - name: Start Laravel Server
         run: php artisan serve --host=127.0.0.1 --port=8000 &
         
-      # FIX: Use a reliable action to wait for the Laravel server
-      - name: Wait for Laravel Server (HTTP)
-        uses: iankola/wait-on@v1
-        with:
-          resource: http-get://127.0.0.1:8000
-          delay: 5s 
-          timeout: 60s 
+      # FIX: Removed the failing wait-on action and replaced with a shell script wait
+      - name: Wait for Laravel Server (Shell Script)
+        run: |
+          echo "Waiting for Laravel server (127.0.0.1:8000)..."
+          timeout=60
+          for i in $(seq 1 $timeout); do
+            curl --silent --fail http://127.0.0.1:8000 > /dev/null
+            if [ $? -eq 0 ]; then
+              echo "Server is ready!"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Server failed to start after 60 seconds."
+          exit 1
 
       - name: Run Cypress Tests
         run: |
