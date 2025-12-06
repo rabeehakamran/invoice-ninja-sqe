@@ -330,7 +330,19 @@ jobs:
               # This specifically targets the 'index.js' path inside the require function and fixes it to 'index.cjs'
               sed -i "s|require('./tests/cypress/plugins/index.js')|require('./tests/cypress/plugins/index.cjs')|g" cypress.config.cjs
               echo "Successfully updated plugin path inside cypress.config.cjs to use .cjs"
+          # FIX 3: Registering cy.task events for the environment variables 
+          - name: Inject Cypress Task Registration (Final Placement)
+            run: |
+              # 1. Define the task registration code block
+              TASK_CODE='on("task", {\
+              "activateCypressEnvFile": () => { console.log("CYPRESS TASK: EnvFile activated (Mocked)"); return null; },\
+              "activateLocalEnvFile": () => { console.log("CYPRESS TASK: Local Env activated (Mocked)"); return null; }\
+              });'
     
+              # 2. Use 'sed' to inject the TASK_CODE before the 'return config;' line in index.cjs
+              sed -i "/return config;/i \ \ \ \ ${TASK_CODE}" tests/cypress/plugins/index.cjs
+          
+              echo "Injected necessary cy.task registration into tests/cypress/plugins/index.cjs."
           - name: Start Laravel Server
             run: php artisan serve --host=127.0.0.1 --port=8000 &
             
