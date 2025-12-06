@@ -9,14 +9,14 @@ on:
       - main
 
 jobs:
-  # --- 1. Build Stage (Code Compilation & Artifact Creation) ---
+  # --- 1. Build Stage ---
   build:
     name: Build Application & Create Artifacts
     runs-on: ubuntu-latest
     
     outputs:
       build-version: ${{ steps.get-version.outputs.version }}
-    
+      
     steps:
       - name: Log Source Stage Information
         run: |
@@ -29,7 +29,7 @@ jobs:
           echo "Commit SHA: ${{ github.sha }}"
           echo "Triggered by: ${{ github.actor }}"
           echo "=========================================="
-      
+          
       - name: Checkout Code
         uses: actions/checkout@v3
         with:
@@ -41,7 +41,7 @@ jobs:
           VERSION=$(date +%Y%m%d.%H%M%S)
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Build Version: $VERSION"
-      
+          
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
@@ -59,7 +59,7 @@ jobs:
             ${{ runner.os }}-composer-
 
       - name: Install Composer Dependencies
-        run: composer install --no-progress --prefer-dist --optimize-autoloader --no-scripts
+        run: composer install --no-progress --prefer-dist --optimize-autoloader --no-scripts 
 
       # --- Laravel Cache & Storage Setup ---
       - name: Create Storage & Cache Directories
@@ -77,7 +77,7 @@ jobs:
           php artisan config:clear
           php artisan cache:clear
           php artisan view:clear
-      
+          
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
@@ -108,35 +108,33 @@ jobs:
           tar -czf "../$ARTIFACT_NAME.tar.gz" .
           cd ..
           echo "✅ Artifact ready: $ARTIFACT_NAME.tar.gz"
-      
+          
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
           name: invoice-ninja-build
           path: ./*.tar.gz
           retention-days: 7
-
-  # --- 2. Backend Tests (Final Fix: Redis Refused Connection) ---
+          
+  # --- 2. Backend Tests (Database Connection Fix) ---
   backend-tests:
     name: Run Backend Tests
     runs-on: ubuntu-latest
     needs: build
     
-    # FIX: Redis driver ko temporary array/sync mein change kar do taake migrations chal saken.
     env:
       DB_CONNECTION: mysql
       DB_DATABASE: ninja
       DB_USERNAME: root
       DB_PASSWORD: ninja
-      DB_HOST: mariadb  # Service name use karein
-      REDIS_HOST: redis
+      DB_HOST: '127.0.0.1'
+      REDIS_HOST: '127.0.0.1'
       REDIS_PORT: 6379
-      CACHE_DRIVER: array       # <-- FIX 1: Change to array
-      QUEUE_CONNECTION: sync    # <-- FIX 2: Change to sync
-      SESSION_DRIVER: array     # <-- FIX 3: Change to array
+      CACHE_DRIVER: array       
+      QUEUE_CONNECTION: sync    
+      SESSION_DRIVER: array     
       MAIL_MAILER: log
 
-    # MariaDB aur Redis services ko rakhna abhi bhi theek hai, agar kisi aur test ko zaroorat pade.
     services:
       mariadb:
         image: mariadb:10.6
@@ -152,68 +150,82 @@ jobs:
       redis:
         image: redis
         ports:
-          - 6379/tcp
+          - 6379:6379
         options: --health-cmd="redis-cli ping" --health-interval=10s --health-timeout=5s --health-retries=3
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
-      
+
       - name: Setup PHP (Include necessary extensions)
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
-          extensions: mbstring, pdo_mysql, tokenizer, xml, ctype, curl, gd, zip, bcmath
+          extensions: mysql, sqlite3, bcmath, gmp, gd, curl, zip, openssl, mbstring, xml, redis
           coverage: none
       
-      # Use --no-scripts to prevent package:discover from running early
       - name: Install Composer Dependencies (Disable Scripts)
         run: composer install --no-progress --prefer-dist --optimize-autoloader --no-scripts
       
-      # Create Storage Directories & Set Permissions
+      # FIX: Explicit wait for DB connection
+      - name: Wait for Database Service to be ready (127.0.0.1)
+        run: |
+          echo "Waiting for MariaDB (127.0.0.1:3306)..."
+          for i in {1..30}; do
+            if mysqladmin ping -h "127.0.0.1" -P 3306 --silent; then
+              echo "MariaDB is up and running!"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "MariaDB service failed to start after 30 seconds."
+          exit 1
+        
       - name: Create Storage Directories & Set Permissions
         run: |
-          mkdir -p bootstrap/cache
           mkdir -p storage/framework/{cache,sessions,views}
           mkdir -p storage/app/public
-          chmod -R 777 bootstrap/cache storage
-    
-      # Setup Laravel Environment & Migrate DB (Now without Redis connection errors)
+          mkdir -p bootstrap/cache
+          chmod -R 777 storage bootstrap/cache
+          
       - name: Setup Laravel Environment & Migrate DB
         run: |
           cp .env.example .env
-          # Manual Host/Driver setting is not needed if ENV vars set globally (but harmless)
+          sed -i "s/DB_HOST=127.0.0.1/DB_HOST=127.0.0.1/" .env
+          sed -i "s/DB_PORT=3306/DB_PORT=3306/" .env
+          sed -i "s/DB_DATABASE=laravel/DB_DATABASE=ninja/" .env
+          sed -i "s/DB_USERNAME=root/DB_USERNAME=root/" .env
+          sed -i "s/DB_PASSWORD=/DB_PASSWORD=ninja/" .env
+          
           php artisan key:generate
           php artisan config:clear
           php artisan package:discover --ansi
           php artisan ninja:post-update || true
           php artisan optimize || true
           php artisan migrate --force
-      
-      # Run tests (Now PHPUnit can execute without Redis/Artisan failure)
+          
       - name: Run Backend Unit Tests
         run: vendor/bin/phpunit --testsuite Unit --colors=always --testdox
-  
+
       - name: Run Backend Feature/API Tests
         run: vendor/bin/phpunit --testsuite Feature --colors=always --testdox
 
-  # --- 3. UI (Cypress) Tests (Refined with Services and Server Start) ---
+  # --- 3. UI (Cypress) Tests (Action Not Found Fix) ---
   ui-tests:
     name: Run UI Tests
     runs-on: ubuntu-latest
     needs: build
     
-    # Services (Database required for server to run)
     env:
       DB_CONNECTION: mysql
       DB_DATABASE: ninja
-      DB_USERNAME: root
-      DB_PASSWORD: ninja
-      DB_HOST: '127.0.0.1'
-      MAIL_MAILER: log
+      DB_USERNAME: user
+      DB_PASSWORD: password
+      DB_HOST: '127.0.0.1' 
+      MAIL_MAILER: log 
 
     services:
-      mysql:
+      mysql: 
         image: mysql:8.0
         ports:
           - 3306:3306
@@ -241,7 +253,20 @@ jobs:
 
       - name: Install Composer Dependencies
         run: composer install --no-progress --prefer-dist --optimize-autoloader --no-dev
-      
+        
+      - name: Wait for Database Service in UI Tests
+        run: |
+          echo "Waiting for MySQL (127.0.0.1:3306)..."
+          for i in {1..30}; do
+            if mysqladmin ping -h "127.0.0.1" -P 3306 --silent; then
+              echo "MySQL is up and running!"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "MySQL service failed to start after 30 seconds."
+          exit 1
+          
       - name: Setup Laravel Environment & Migrate DB
         run: |
           mkdir -p storage/framework/{cache,sessions,views}
@@ -250,6 +275,12 @@ jobs:
           chmod -R 777 storage bootstrap/cache
           
           cp .env.example .env
+          sed -i "s/DB_HOST=127.0.0.1/DB_HOST=127.0.0.1/" .env
+          sed -i "s/DB_PORT=3306/DB_PORT=3306/" .env
+          sed -i "s/DB_DATABASE=laravel/DB_DATABASE=ninja/" .env
+          sed -i "s/DB_USERNAME=root/DB_USERNAME=user/" .env
+          sed -i "s/DB_PASSWORD=/DB_PASSWORD=password/" .env
+          
           php artisan key:generate
           php artisan config:clear
           php artisan migrate --force
@@ -261,19 +292,20 @@ jobs:
 
       - name: Install Node Dependencies
         run: npm install
-      
+        
       - name: Build Frontend Assets
         run: npm run build
 
       - name: Start Laravel Server
         run: php artisan serve --host=127.0.0.1 --port=8000 &
-      
-      - name: Wait for server to start
-        uses: nevskrem/wait-for-action@v1
+        
+      # FIX: Use a reliable action to wait for the Laravel server
+      - name: Wait for Laravel Server (HTTP)
+        uses: iankola/wait-on@v1
         with:
-          host: 127.0.0.1
-          port: 8000
-          timeout: 60s
+          resource: http-get://127.0.0.1:8000
+          delay: 5s 
+          timeout: 60s 
 
       - name: Run Cypress Tests
         run: |
@@ -292,10 +324,10 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: invoice-ninja-build
-      
+          
       - name: Extract Artifact for Deployment
         run: tar -xzf *.tar.gz
-      
+          
       - name: Deploy via SSH to Staging Server
         uses: appleboy/ssh-action@v0.1.7
         with:
