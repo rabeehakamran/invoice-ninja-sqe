@@ -116,7 +116,7 @@ jobs:
           path: ./*.tar.gz
           retention-days: 7
           
-  # --- 2. Backend Tests (Refined with Official Config) ---
+  # --- 2. Backend Tests (Final Fix for Artisan Error) ---
   backend-tests:
     name: Run Backend Tests
     runs-on: ubuntu-latest
@@ -165,26 +165,30 @@ jobs:
           extensions: mysql, sqlite3, bcmath, gmp, gd, curl, zip, openssl, mbstring, xml, redis
           coverage: none
       
-      # FIX 1: Removed --no-dev to install PHPUnit for testing
-      - name: Install Composer Dependencies (For Tests)
-        run: composer install --no-progress --prefer-dist --optimize-autoloader 
+      # FIX 1: Use --no-scripts to prevent package:discover from running early and failing
+      - name: Install Composer Dependencies (Disable Scripts)
+        run: composer install --no-progress --prefer-dist --optimize-autoloader --no-scripts
         
-      # Setup Laravel Environment (Required for artisan commands)
-      - name: Setup Laravel Environment & Migrate DB
+      # FIX 2: This must run before 'php artisan package:discover'
+      - name: Create Storage Directories & Set Permissions
         run: |
           mkdir -p storage/framework/{cache,sessions,views}
           mkdir -p storage/app/public
           mkdir -p bootstrap/cache
           chmod -R 777 storage bootstrap/cache
           
+      # FIX 3: Now we run the setup, including package:discover (which now finds the directories)
+      - name: Setup Laravel Environment & Migrate DB
+        run: |
           cp .env.example .env
           php artisan key:generate
           php artisan config:clear
+          php artisan package:discover --ansi # Now it should pass!
           php artisan ninja:post-update || true
           php artisan optimize || true
           php artisan migrate --force
           
-      # FIX 2: Run tests directly from vendor/bin/phpunit
+      # Run tests
       - name: Run Backend Unit Tests
         run: vendor/bin/phpunit --testsuite Unit --colors=always --testdox
 
@@ -197,17 +201,17 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     
-    # Services (Same as backend tests for consistency)
+    # Services (Database required for server to run)
     env:
       DB_CONNECTION: mysql
       DB_DATABASE: ninja
       DB_USERNAME: root
       DB_PASSWORD: ninja
       DB_HOST: '127.0.0.1' 
-      MAIL_MAILER: log # To prevent real emails during tests
+      MAIL_MAILER: log 
 
     services:
-      mysql: # MySQL is often preferred over MariaDB for Cypress setup speed/simplicity
+      mysql: 
         image: mysql:8.0
         ports:
           - 3306:3306
@@ -256,11 +260,9 @@ jobs:
       - name: Install Node Dependencies
         run: npm install
         
-      # FIX 3: Build Frontend Assets (Required for UI tests)
       - name: Build Frontend Assets
         run: npm run build
 
-      # FIX 4: Start Laravel server in the background
       - name: Start Laravel Server
         run: php artisan serve --host=127.0.0.1 --port=8000 &
         
