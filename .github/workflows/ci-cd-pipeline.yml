@@ -61,7 +61,7 @@ jobs:
       - name: Install Composer Dependencies
         run: composer install --no-progress --prefer-dist --optimize-autoloader --no-scripts 
 
-      # --- Laravel Cache & Storage Fixes ---
+      # --- Laravel Cache & Storage Setup ---
       - name: Create Storage & Cache Directories
         run: |
           mkdir -p bootstrap/cache
@@ -115,7 +115,7 @@ jobs:
           name: invoice-ninja-build
           path: ./*.tar.gz
           retention-days: 7
-
+          
   # --- 2. Backend Tests ---
   backend-tests:
     name: Run Backend Tests
@@ -131,10 +131,24 @@ jobs:
           php-version: '8.3'
           extensions: mbstring, pdo_mysql, tokenizer, xml, ctype, curl, gd, zip, bcmath
           coverage: none
-
-      - name: Install Composer Dependencies
-        run: composer install --no-progress --prefer-dist --optimize-autoloader --no-dev
-
+      
+      # FIX: Install with --no-scripts to prevent package:discover from failing immediately
+      - name: Install Composer Dependencies (No Scripts)
+        run: composer install --no-progress --prefer-dist --optimize-autoloader --no-dev --no-scripts
+        
+      # FIX: Add Laravel environment setup before running artisan commands (package:discover)
+      - name: Create Storage Directories & Set Permissions
+        run: |
+          mkdir -p storage/framework/{cache,sessions,views}
+          mkdir -p storage/app/public
+          chmod -R 777 storage bootstrap/cache
+          
+      - name: Setup Laravel Environment & Discover Packages
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+          php artisan package:discover --ansi
+          
       - name: Run Backend Unit Tests
         run: |
           cd tests/SQE/Unit
@@ -147,57 +161,88 @@ jobs:
 
   # --- 3. UI (Cypress) Tests ---
   ui-tests:
-      name: Run UI Tests (Cypress)
-      runs-on: ubuntu-latest
-      needs: build
+    name: Run UI Tests
+    runs-on: ubuntu-latest
+    needs: build
     
-      steps:
-        - name: Checkout Code
-          uses: actions/checkout@v4
-    
-        - name: Download Build Artifacts
-          uses: actions/download-artifact@v4
-          with:
-            name: app-build
-            path: .
-    
-        - name: Setup PHP
-          uses: shivammathur/setup-php@v2
-          with:
-            php-version: '8.3'
-            extensions: mbstring, pdo_mysql, tokenizer, xml, ctype, curl, gd, zip, bcmath
-            coverage: none
-    
-        - name: Setup Laravel Directories
-          run: |
-            mkdir -p storage/framework/{cache,sessions,views}
-            mkdir -p bootstrap/cache
-            chmod -R 777 storage bootstrap/cache
-    
-        - name: Setup Laravel Environment
-          run: |
-            cp .env.example .env
-            php artisan key:generate
-    
-        - name: Start Laravel Server
-          run: |
-            php artisan serve --host=127.0.0.1 --port=8000 &
-            sleep 10
-    
-        - name: Setup Node.js
-          uses: actions/setup-node@v3
-          with:
-            node-version: '20'
-    
-        - name: Install Cypress Dependencies
-          run: npm ci
-    
-        - name: Run Cypress Tests
-          uses: cypress-io/github-action@v6
-          with:
-            wait-on: 'http://127.0.0.1:8000'
-            browser: chrome
-            spec: "tests/cypress/SQE/**/*.cy.js"
+    # FIX: Add MySQL service for database
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: password
+          MYSQL_DATABASE: testing_db
+          MYSQL_USER: user
+          MYSQL_PASSWORD: password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_mysql, tokenizer, xml, ctype, curl, gd, zip, bcmath
+          coverage: none
+
+      - name: Install Composer Dependencies
+        run: composer install --no-progress --prefer-dist --optimize-autoloader --no-dev
+        
+      # FIX: Setup Laravel Environment and DB config for testing
+      - name: Setup Laravel Environment & Database
+        run: |
+          cp .env.example .env
+          # Configure DB for service
+          sed -i "s/DB_CONNECTION=mysql/DB_CONNECTION=mysql/" .env
+          sed -i "s/DB_HOST=127.0.0.1/DB_HOST=127.0.0.1/" .env
+          sed -i "s/DB_PORT=3306/DB_PORT=3306/" .env
+          sed -i "s/DB_DATABASE=laravel/DB_DATABASE=testing_db/" .env
+          sed -i "s/DB_USERNAME=root/DB_USERNAME=user/" .env
+          sed -i "s/DB_PASSWORD=/DB_PASSWORD=password/" .env
+          
+          php artisan key:generate
+          php artisan package:discover --ansi
+          mkdir -p storage/framework/{cache,sessions,views}
+          chmod -R 777 storage bootstrap/cache
+          
+      # FIX: Run Migrations
+      - name: Run Database Migrations
+        run: php artisan migrate --force
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      - name: Install Node Dependencies
+        run: npm install
+        
+      # FIX: Build Frontend Assets (Cypress needs compiled assets)
+      - name: Build Frontend Assets
+        run: npm run build
+
+      # FIX: Start Laravel server in the background
+      - name: Start Laravel Server
+        run: php artisan serve --host=127.0.0.1 --port=8000 &
+        
+      - name: Wait for server to start
+        uses: nevskrem/wait-for-action@v1
+        with:
+          host: 127.0.0.1
+          port: 8000
+          timeout: 60s
+
+      - name: Run Cypress Tests
+        run: |
+          npx cypress run --config baseUrl="http://127.0.0.1:8000" --spec "tests/cypress/SQE/**/*.cy.js"
 
   # --- 4. Staging Deployment ---
   deploy-staging:
