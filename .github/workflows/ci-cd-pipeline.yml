@@ -145,32 +145,55 @@ jobs:
           echo "BUILD STAGE COMPLETED SUCCESSFULLY"
           echo "=========================================="
 
-  # --- 2 & 3. Test Stages (BYPASSED) ---
+  # --- 2. Backend Tests ---
   backend-tests:
-    name: Run Backend Tests (BYPASSED)
+    name: Run Backend Tests
     runs-on: ubuntu-latest
     needs: build
     steps:
-      - name: Download Build Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: invoice-ninja-build
-      - name: Extract Artifact for Testing
-        run: tar -xzf *.tar.gz
-      - name: ⛔ Bypass Backend Tests ⛔
-        run: echo "BACKEND TESTS BYPASSED (For Project Demo)"
+      - name: Checkout Code
+        uses: actions/checkout@v3
 
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_mysql, tokenizer, xml, ctype, curl, gd, zip, bcmath
+          coverage: none
+
+      - name: Install Composer Dependencies
+        run: composer install --no-progress --prefer-dist --optimize-autoloader --no-dev
+
+      - name: Run Backend Unit Tests
+        run: |
+          cd tests/SQE/Unit
+          ./../../vendor/bin/phpunit --colors=always --testdox
+
+      - name: Run Backend Feature/API Tests
+        run: |
+          cd tests/SQE/Feature
+          ./../../vendor/bin/phpunit --colors=always --testdox
+
+  # --- 3. UI (Cypress) Tests ---
   ui-tests:
-    name: Run UI Tests (BYPASSED)
+    name: Run UI Tests
     runs-on: ubuntu-latest
     needs: build
     steps:
-      - name: Download Build Artifact
-        uses: actions/download-artifact@v4
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
         with:
-          name: invoice-ninja-build
-      - name: ⛔ Bypass UI Tests ⛔
-        run: echo "UI TESTS BYPASSED (For Project Demo)"
+          node-version: '20'
+
+      - name: Install Node Dependencies
+        run: npm install
+
+      - name: Run Cypress Tests
+        run: |
+          npx cypress run --spec "tests/cypress/SQE/**/*.cy.js"
 
   # --- 4. Staging Deployment ---
   deploy-staging:
