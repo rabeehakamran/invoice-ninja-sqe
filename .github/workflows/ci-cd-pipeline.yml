@@ -219,7 +219,7 @@ jobs:
         run: vendor/bin/phpunit tests/SQE/Feature --colors=always --testdox
         continue-on-error: true
 
-  # --- 3. UI (Cypress) Tests (Permanent CJS Fix Applied) ---
+# --- 3. UI (Cypress) Tests (Applied Final Path Fix) ---
   ui-tests:
         name: Run UI Tests
         runs-on: ubuntu-latest
@@ -308,7 +308,7 @@ jobs:
           - name: Build Frontend Assets
             run: npm run build
             
-          # FIX 1 (PERMANENT): Rename all necessary JS files to CJS recursively
+          # FIX 1: Rename all necessary JS files to CJS recursively
           - name: Rename JS Config/Plugin Files to CJS
             run: |
               # 1. Rename main config (cypress.config.js -> cypress.config.cjs)
@@ -318,16 +318,18 @@ jobs:
               fi
               
               # 2. Rename ALL *.js files in plugins directory to *.cjs (recursive fix)
-              find tests/cypress/plugins/ -name "*.js" -type f -exec bash -c 'mv "$0" "${0/.js/.cjs}" && echo "Renamed $0 to ${0/.js/.cjs}"' {} \;
+              if [ -d tests/cypress/plugins ]; then
+                  find tests/cypress/plugins/ -name "*.js" -type f -exec bash -c 'mv "$0" "${0/.js/.cjs}" && echo "Renamed $0 to ${0/.js/.cjs}"' {} \;
+              fi
               
               echo "All plugins and config files prepared for CommonJS compatibility."
     
-          # FIX 2 (PATH UPDATE): Update the path inside cypress.config.cjs to load the new .cjs plugin file
-          - name: Update Config to Load .cjs Plugin
+          # FIX 2: Update the exact path inside cypress.config.cjs to load the new .cjs plugin file
+          - name: Update Config to Load .cjs Plugin (Final Fix)
             run: |
-              # The regex now searches for ANY .js path inside require() and replaces it with .cjs
-              sed -i 's|require(\(.*\)\.js)|require(\1.cjs)|g' cypress.config.cjs
-              echo "Updated all .js requires to .cjs inside cypress.config.cjs"
+              # This specifically targets the 'index.js' path inside the require function and fixes it to 'index.cjs'
+              sed -i "s|require('./tests/cypress/plugins/index.js')|require('./tests/cypress/plugins/index.cjs')|g" cypress.config.cjs
+              echo "Successfully updated plugin path inside cypress.config.cjs to use .cjs"
     
           - name: Start Laravel Server
             run: php artisan serve --host=127.0.0.1 --port=8000 &
