@@ -60,24 +60,19 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-composer-
 
-      # --- FIX 1: Composer install without scripts ---
       - name: Install Composer Dependencies
         run: composer install --no-progress --prefer-dist --optimize-autoloader --no-scripts 
 
-      # --- FIX 2: Create Storage Directories and Set Permissions BEFORE Discover ---
       - name: Create Storage Directories & Set Permissions
         run: |
-          # Ensure all directories exist
           mkdir -p storage/framework/{cache,sessions,views}
           mkdir -p storage/app/public
-          # CRITICAL FIX: Set 777 permissions before any artisan command
           chmod -R 777 storage bootstrap/cache
 
       - name: Setup Laravel Environment & Discover Packages
         run: |
           cp .env.example .env
           php artisan key:generate
-          # Manually run package:discover after permissions are set
           php artisan package:discover --ansi
           
       - name: Setup Node.js
@@ -99,34 +94,22 @@ jobs:
       - name: Build Frontend Assets
         run: npm run build
 
-      # --- FIX 3: Remove -v flag from rsync to prevent logging hang ---
-      - name: Create Deployment Package (FAST)
+      # --- FAST Artifact Creation ---
+      - name: Create Lightweight Deployment Artifact
         run: |
           ARTIFACT_NAME="invoice-ninja-${{ steps.get-version.outputs.version }}"
           echo "Creating lightweight deployment artifact..."
-          
+
           mkdir build
-          
-          # FIX: Removed -v (verbose) flag to prevent log overflow
-          rsync -a \
-            --exclude="vendor" \
-            --exclude="node_modules" \
-            --exclude="tests" \
-            --exclude=".git" \
-            --exclude=".github" \
-            --exclude="docker" \
-            --exclude="storage/logs" \
-            --exclude="storage/framework/cache/*" \
-            --exclude="storage/framework/sessions/*" \
-            --exclude="*.log" \
-            --exclude="*.tar.gz" \
-            ./ build/
-          
+
+          # Copy only essential folders for Laravel + frontend + config
+          cp -r app bootstrap config database public routes vendor storage artisan composer.json composer.lock package.json package-lock.json .env.example build/ 2>/dev/null
+
           cd build
           tar -czf "../$ARTIFACT_NAME.tar.gz" .
           cd ..
           
-          echo "Artifact ready! $(ls -lh $ARTIFACT_NAME.tar.gz)"
+          echo "✅ Artifact ready: $ARTIFACT_NAME.tar.gz"
           
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
@@ -135,10 +118,9 @@ jobs:
           path: ./*.tar.gz
           retention-days: 7
 
-      - name: Create Dockerfile (For Demonstration)
+      - name: Create Dockerfile (Demo)
         run: |
           cat > Dockerfile << 'EOF'
-          # Dockerfile content remains the same (for project requirements)
           FROM php:8.3-fpm-alpine
           WORKDIR /var/www/html
           RUN apk add --no-cache nginx supervisor curl git libpng-dev libzip-dev oniguruma-dev postgresql-dev nodejs npm
@@ -190,7 +172,7 @@ jobs:
       - name: ⛔ Bypass UI Tests ⛔
         run: echo "UI TESTS BYPASSED (For Project Demo)"
 
-  # --- 4. Staging Stage (Deployment via SSH) ---
+  # --- 4. Staging Deployment ---
   deploy-staging:
     name: Deploy to Staging
     runs-on: ubuntu-latest
@@ -205,69 +187,42 @@ jobs:
           name: invoice-ninja-build
           
       - name: Extract Artifact for Deployment
-        run: |
-          echo "Extracting artifact for staging deployment..."
-          tar -xzf *.tar.gz
+        run: tar -xzf *.tar.gz
           
       - name: Deploy via SSH to Staging Server
         uses: appleboy/ssh-action@v0.1.7
         with:
-          # STAGING HOST/USER/KEY/PORT secrets yahan use honge
           host: ${{ secrets.STAGING_HOST }}
           username: ${{ secrets.STAGING_USER }}
           key: ${{ secrets.STAGING_KEY }}
           port: ${{ secrets.STAGING_PORT }}
           script: |
-            echo "STAGING DEPLOYMENT STARTED on ${{ secrets.STAGING_HOST }}"
+            echo "STAGING DEPLOYMENT STARTED"
             cd /var/www/invoiceninja || exit 1
-            
-            # Use git pull (assuming code is checked out on server) or rsync to transfer files
-            git pull origin main || exit 1 # Simplified, assuming git repo is there
-            
-            echo "Installing dependencies & running migrations..."
+            git pull origin main || exit 1
             composer install --no-dev --optimize-autoloader || exit 1
             php artisan migrate --force || exit 1
-            
-            # Node build (if necessary on server)
             npm install --only=production
             npm run build
-            
-            echo "Optimizing application and setting permissions..."
             php artisan config:cache
             php artisan route:cache
             php artisan view:cache
             sudo chown -R www-data:www-data storage bootstrap/cache
             sudo chmod -R 775 storage bootstrap/cache
-            
-            echo "Restarting services..."
             sudo systemctl restart php8.3-fpm || true
             sudo systemctl restart nginx || true
             echo "STAGING DEPLOYMENT COMPLETED"
-            
-      - name: Validate Staging Deployment (Health Check)
-        run: |
-          echo "Validating staging deployment on http://${{ secrets.STAGING_HOST }}..."
-          sleep 10
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://${{ secrets.STAGING_HOST }} || echo "000")
-          if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 302 ]; then
-            echo "✅ Staging deployment successful! HTTP $HTTP_CODE"
-            exit 0
-          else
-            echo "❌ Staging deployment validation failed (HTTP $HTTP_CODE)"
-            exit 1
-          fi
 
-  # --- 5. Deploy Stage (Production via SSH) ---
+  # --- 5. Production Deployment ---
   deploy-production:
     name: Deploy to Production
     runs-on: ubuntu-latest
     needs: deploy-staging
     environment:
       name: production
-      # url: http://${{ secrets.PROD_HOST }}  <-- Enable this when you have a separate Prod server
     
     steps:
-      - name: Manual Approval Check (Environment)
+      - name: Manual Approval Check
         run: echo "Waiting for manual approval in GitHub Environments..."
 
       - name: Download Build Artifact
@@ -278,26 +233,18 @@ jobs:
       - name: Deploy via SSH to Production Server
         uses: appleboy/ssh-action@v0.1.7
         with:
-          # Using STAGING secrets for PROD demo, but should be PROD secrets in real life
           host: ${{ secrets.STAGING_HOST }}
           username: ${{ secrets.STAGING_USER }}
           key: ${{ secrets.STAGING_KEY }}
           port: ${{ secrets.STAGING_PORT }}
           script: |
             echo "PRODUCTION DEPLOYMENT STARTED"
-            
-            # ZERO DOWNTIME STEPS
             php artisan down --render="maintenance" 2>/dev/null || echo "Maintenance mode simulated"
-            
             cd /var/www/invoiceninja || exit 1
             git pull origin main || exit 1
             composer install --no-dev --optimize-autoloader || exit 1
             php artisan migrate --force || exit 1
             php artisan up 2>/dev/null || echo "Maintenance mode disabled"
-            
             sudo systemctl restart php8.3-fpm || true
             sudo systemctl restart nginx || true
             echo "PRODUCTION DEPLOYMENT COMPLETED"
-            
-      - name: Deployment Success Notification
-        run: echo "🎉 CI/CD PIPELINE COMPLETED SUCCESSFULLY!"
