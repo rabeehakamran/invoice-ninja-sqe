@@ -232,7 +232,6 @@ jobs:
           DB_PASSWORD: password
           DB_HOST: '127.0.0.1' 
           MAIL_MAILER: log 
-          # Note: UI tests mein Redis ki zarurat kam hoti hai, isliye Cache drivers change nahi kar rahe.
     
         services:
           mysql: 
@@ -261,7 +260,7 @@ jobs:
               extensions: mbstring, pdo_mysql, tokenizer, xml, ctype, curl, gd, zip, bcmath
               coverage: none
     
-          # FIX 1: Use --no-scripts flag here too
+          # FIX 1: Composer Install with --no-scripts
           - name: Install Composer Dependencies (No Scripts)
             run: composer install --no-progress --prefer-dist --optimize-autoloader --no-dev --no-scripts
             
@@ -286,7 +285,7 @@ jobs:
               mkdir -p bootstrap/cache
               chmod -R 777 storage bootstrap/cache
               
-          # FIX 3: Manually run package:discover after setup
+          # FIX 3: Manually run package:discover
           - name: Setup Laravel Environment & Migrate DB
             run: |
               cp .env.example .env
@@ -298,7 +297,6 @@ jobs:
               
               php artisan key:generate
               php artisan config:clear
-              # Now run package:discover manually after the directories are ready
               php artisan package:discover --ansi
               php artisan migrate --force
     
@@ -312,11 +310,19 @@ jobs:
             
           - name: Build Frontend Assets
             run: npm run build
+            
+          # FIX 4: Rename cypress.config.js to cypress.config.cjs to fix 'require is not defined'
+          - name: Rename Cypress Config for Node Compatibility
+            run: |
+              if [ -f cypress.config.js ]; then
+                mv cypress.config.js cypress.config.cjs
+                echo "Cypress config file renamed to .cjs"
+              fi
+              # Agar aapki Cypress config file tests/ mein hai to aapko path adjust karna hoga.
     
           - name: Start Laravel Server
             run: php artisan serve --host=127.0.0.1 --port=8000 &
             
-          # Using the robust Shell script wait (since actions failed)
           - name: Wait for Laravel Server (Shell Script)
             run: |
               echo "Waiting for Laravel server (127.0.0.1:8000)..."
@@ -334,7 +340,11 @@ jobs:
     
           - name: Run Cypress Tests
             run: |
-              npx cypress run --config baseUrl="http://127.0.0.1:8000" --spec "tests/cypress/SQE/**/*.cy.js"
+              # FIX 5: Use the renamed .cjs file explicitly
+              npx cypress run \
+                --config baseUrl="http://127.0.0.1:8000" \
+                --config-file cypress.config.cjs \
+                --spec "tests/cypress/SQE/**/*.cy.js"
 
   # --- 4. Staging Deployment ---
   deploy-staging:
