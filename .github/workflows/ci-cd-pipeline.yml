@@ -96,30 +96,34 @@ jobs:
       - name: Build Frontend Assets
         run: npm run build
 
-      # --- ARTIFACT CREATION (Project Requirement) ---
       - name: Create Deployment Package (tar.gz)
         run: |
-          # Create timestamped artifact
           ARTIFACT_NAME="invoice-ninja-${{ steps.get-version.outputs.version }}"
-          
+    
           echo "Creating deployment artifact: $ARTIFACT_NAME.tar.gz"
-          echo "Files to be included in artifact:"
-          find . -type f -name "*.php" | head -10
-          
-          # Create compressed package (excluding unnecessary files)
-          tar -czf $ARTIFACT_NAME.tar.gz \
-            --exclude='*.git*' \
-            --exclude='*.github*' \
-            --exclude='node_modules' \
-            --exclude='vendor' \
-            --exclude='*.log' \
-            --exclude='*.tar.gz' \
-            --exclude='Dockerfile' \
-            .
-          
+
+          # Create a clean build directory
+          mkdir build
+
+          # Copy required files/folders for Invoice Ninja deployment
+          rsync -av \
+          --exclude=".git" \
+          --exclude=".github" \
+          --exclude="node_modules" \
+          --exclude="tests" \
+          --exclude="docker" \
+          --exclude="*.log" \
+          --exclude="*.tar.gz" \
+          ./ build/
+
+          # Go into build directory and create tar
+          cd build
+          tar -czf "../$ARTIFACT_NAME.tar.gz" .
+      
+          cd ..
           echo "Artifact created successfully!"
-          ls -lh *.tar.gz
-          echo "Artifact size: $(du -h *.tar.gz | cut -f1)"
+          ls -lh $ARTIFACT_NAME.tar.gz
+
       
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
