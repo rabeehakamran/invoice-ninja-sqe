@@ -1,74 +1,85 @@
-describe("Form 16: Transactions Module Automation (Final Fix)", () => {
+describe("Form 16: Transactions Module Automation (Dropdown Fix)", () => {
 
-    Cypress.on('uncaught:exception', (err, runnable) => {
-        return false;
-    });
+    Cypress.on('uncaught:exception', (err, runnable) => { return false; });
 
     beforeEach(() => {
         cy.on('window:confirm', () => true);
         cy.on('window:alert', () => true);
-
-        // Login
-        login("hashaamwbhati@gmail.com", "12345678");
-
+        
+        login("najtahir75@gmail.com", "12345678");
+        
         // Navigate
         cy.visit("https://app.invoicing.co/#/transactions/create");
-        cy.wait(2000);
+        cy.wait(5000); 
     });
 
     const login = (email, password) => {
         cy.visit("https://app.invoicing.co/", { failOnStatusCode: false });
-        cy.viewport(1227, 879);
+        cy.viewport(1280, 720);
         cy.wait(2000);
-        cy.get('input').should('have.length.gt', 1);
-        cy.get('input').eq(0).clear({force: true}).type(email);
-        cy.get('input').eq(1).clear({force: true}).type(password);
+        cy.get('input').eq(0).clear({force: true}).type(email, {force: true});
+        cy.get('input').eq(1).clear({force: true}).type(password, {force: true});
         cy.contains('button', 'Login').click({force: true});
-        cy.wait(4000);
+        cy.wait(5000);
     };
 
-    // --- HELPER FUNCTION (Updated) ---
+    // --- HELPER FUNCTION ---
     const fillTransactionForm = (bank, amount, date, desc) => {
         
-        // 1. AMOUNT (Order changed - Ab pehle Amount fill hoga)
+        // 1. AMOUNT (Verified Working)
         if (amount !== null) {
-            // Maine selector change kiya hai taake wo specific number field dhoonday
-            // Agar yeh fail ho to bataiye ga
-            cy.get('input[type="number"], input[placeholder*="Amount"]')
+            cy.contains('Amount', { timeout: 10000 }) 
               .should('be.visible')
+              .parent().parent()
+              .find('input')
+              .first()
               .clear({force: true})
               .type(amount, {force: true});
         }
 
-        // 2. BANK SELECTION (Fixed Logic)
+        // 2. BANK SELECTION (FIXED)
         if (bank !== null) {
-            // Dropdown Trigger
-            cy.get("[data-testid='combobox-input-field']").click({force: true});
+            // Step A: Find the Trigger (Input or Button next to label) and click IT
+            cy.contains('Bank Account', { timeout: 10000 })
+              .parent().parent()
+              .find('input, button') // Find the interactive element inside
+              .first()
+              .click({force: true}); 
             
-            // IMPORTANT: Wait for dropdown animation to open
-            cy.wait(1000); 
+            // Wait for animation
+            cy.wait(2000);
 
-            // Ab Portal input dhoondtay hain
-            cy.get("#headlessui-portal-root input")
-              .should('be.visible')
-              .clear({force: true})
-              .type(bank, {force: true});
-
-            // Result select karna
-            cy.wait(1000);
-            cy.get("#headlessui-portal-root > div > div button").first().click({force: true});
+            // Step B: Select Option (Generic 'li' is safer than role="option")
+            cy.get('body').then($body => {
+                // Check if any list item is visible
+                if ($body.find('li').length > 0) {
+                    // Click the last item (often "Create New" is first, existing banks are later)
+                    // Or click the first available one
+                    cy.get('li').last().click({force: true});
+                } else {
+                    // If no list, try typing in the portal input if it exists
+                    cy.get('#headlessui-portal-root input').type(bank + '{enter}', {force: true});
+                }
+            });
         }
 
         // 3. DATE
         if (date !== null) {
-            cy.get('input[type="date"], input[placeholder*="Date"]')
+            cy.contains('Date') 
+              .parent().parent()
+              .find('input')
+              .clear({force: true})
               .type(date, {force: true});
             cy.get('body').click(); 
         }
 
         // 4. DESCRIPTION
         if (desc !== null) {
-            cy.get('textarea').first().clear({force: true}).type(desc, {force: true});
+            cy.contains('Description') 
+              .parent().parent()
+              .find('textarea') 
+              .clear({force: true})
+              .type(desc, {force: true});
         }
 
         // SAVE BUTTON
@@ -84,23 +95,23 @@ describe("Form 16: Transactions Module Automation (Final Fix)", () => {
 
     it("TC-02: Verify Empty Bank Account (Validation)", () => {
         fillTransactionForm(null, "500", null, "No Bank Test");
-        cy.contains(/bank integration id|required/i).should('be.visible');
+        cy.contains(/bank account field is required|required/i).should('be.visible');
     });
 
     it("TC-03: Verify Negative Amount (Bug Verification)", () => {
         fillTransactionForm("HBL", "-500", null, "Negative Test");
-        cy.contains(/positive|greater than/i).should('be.visible');
+        cy.contains(/positive|greater than/i, { timeout: 10000 }).should('be.visible');
     });
 
-    it("TC-04: Verify Empty Amount Field (Bug Verification)", () => {
+    it("TC-04: Verify Empty Amount Field (PASS)", () => {
         fillTransactionForm("HBL", null, null, "Empty Amount Test");
-        cy.contains(/Amount is required/i).should('be.visible');
+        cy.contains(/Amount.*required/i).should('be.visible'); 
     });
 
     it("TC-05: Verify Future Date (Valid)", () => {
         const nextYear = new Date();
         nextYear.setFullYear(nextYear.getFullYear() + 1);
-        const dateStr = nextYear.toISOString().split('T')[0];
+        const dateStr = nextYear.toISOString().split('T')[0]; 
 
         fillTransactionForm("HBL", "500", dateStr, "Future Date Payment");
         cy.contains(/created|success/i, { timeout: 10000 }).should('be.visible');

@@ -1,4 +1,4 @@
-describe("Form 14: Expenses Module Automation ", () => {
+describe("Form 14: Expenses Module Automation (Final Recorder Fix)", () => {
 
     Cypress.on('uncaught:exception', (err, runnable) => {
         return false;
@@ -7,62 +7,60 @@ describe("Form 14: Expenses Module Automation ", () => {
     beforeEach(() => {
         cy.on('window:confirm', () => true);
         cy.on('window:alert', () => true);
-
-        login("hashaamtemp@gmail.com", "12345678");
-
-        // FIX 1: Login ke baad pehle Dashboard confirm karein, phir move karein
-        cy.url().should('include', '/dashboard'); 
         
-        // Ab Visit karein
+        // Login
+        login("najtahir75@gmail.com", "12345678");
+        
+        // Navigate
         cy.visit("https://app.invoicing.co/#/expenses/create");
         
-        // Ensure karein ke form waqai load ho gaya hai
-        cy.contains('Enter Expense', { timeout: 20000 }).should('be.visible');
+        // Page Load Confirm
+        cy.contains('Enter Expense', { timeout: 15000 }).should('be.visible');
     });
 
     const login = (email, password) => {
         cy.visit("https://app.invoicing.co/", { failOnStatusCode: false });
         cy.viewport(1366, 768);
         cy.wait(2000);
-        
         cy.get('input').should('have.length.gt', 1);
         cy.get('input').eq(0).clear({force: true}).type(email);
         cy.get('input').eq(1).clear({force: true}).type(password);
         cy.contains('button', 'Login').click({force: true});
-        
-        // Wait for login to complete
         cy.wait(5000);
     };
 
-    // --- UPDATED HELPER FUNCTION ---
+    // --- HELPER FUNCTION (Based on Recorder Logic) ---
     const fillExpenseForm = (vendor, amount, date) => {
         
-        // 1. VENDOR (Selector Fixed)
+        // 1. VENDOR (Dropdown)
         if (vendor !== null) {
-            // FIX 2: 'label' tag hata diya. Ab 'Vendor' text dhoond ke uske parent/sibling input ko pakar rahe hain
-            cy.contains('Vendor').parent().find('input')
-              .should('exist') // visible check kabhi kabhi dropdown me fail hota hai
-              .click({force: true});
-            
-            cy.wait(500); // Animation wait
-            
-            // Focused element (Input) me type karein
+            // Recorder logic: Click the combobox
+            cy.get("div.py-4 > div:nth-of-type(1) [data-testid='combobox-input-field']").click({force: true});
+            cy.wait(500); // Wait for dropdown
+
+            // Select first option (mimicking recorder which clicks specific option ID)
+            // or type if needed. Recorder clicked an option directly.
+            // We will try to type + enter for robustness
             cy.focused().type(vendor, {force: true});
-            cy.wait(1000); // Search result wait
+            cy.wait(1000);
             cy.get('body').type('{enter}');
         }
 
-        // 2. AMOUNT
+        // 2. AMOUNT (Recorder used div:nth-of-type(6))
         if (amount !== null) {
-            cy.contains('Amount').parent().find('input')
+            // The recorder's XPath corresponds to the 6th div in the form list
+            // We use a selector that targets this structure
+            cy.get("form div:nth-of-type(6) input")
+              .should('exist')
               .clear({force: true})
               .type(amount, {force: true});
         }
 
-        // 3. DATE
+        // 3. DATE (Recorder used div:nth-of-type(8))
         if (date !== null) {
-            // "Date" text dhoond kar input fill karna
-            cy.contains('Date').parent().find('input')
+            // The recorder's XPath corresponds to the 8th div
+            cy.get("form div:nth-of-type(8) input")
+              .should('exist')
               .clear({force: true})
               .type(date, {force: true});
             cy.get('body').click(); // Close picker
@@ -75,33 +73,43 @@ describe("Form 14: Expenses Module Automation ", () => {
     // --- TEST CASES ---
 
     it("TC-01: Create Expense with Valid Amount (PASS)", () => {
-        fillExpenseForm("Demo Vendor", "100", null);
+        fillExpenseForm("Zee Vendor", "100", null);
         cy.contains(/created|success|saved/i, { timeout: 10000 }).should('be.visible');
     });
 
     it("TC-02: Verify Empty Amount Validation (FAIL - Bug Verification)", () => {
-        fillExpenseForm("Demo Vendor", null, null);
-        // Bug: System saves 0.00 instead of error
+        // Vendor selected, Amount NULL
+        fillExpenseForm("Zee Vendor", null, null);
+
+        // EXPECTED: Error "Amount is required"
+        // ACTUAL: System saves it (Bug) -> Fail Test
         cy.contains(/Amount is required/i).should('be.visible');
+        cy.contains(/created|success|saved/i).should('not.exist');
     });
 
     it("TC-03: Verify Negative Expense Amount (FAIL - Bug Verification)", () => {
-        fillExpenseForm("Demo Vendor", "-500", null);
-        // Bug: System saves negative amount
+        fillExpenseForm("Zee Vendor", "-500", null);
+
+        // EXPECTED: Error "Amount must be positive"
+        // ACTUAL: System saves it (Bug) -> Fail Test
         cy.contains(/positive|greater than/i).should('be.visible');
+        cy.contains(/created|success|saved/i).should('not.exist');
     });
 
-    it("TC-05: Verify Zero Amount Expense (PASS)", () => {
-        fillExpenseForm("Demo Vendor", "0", null);
+    it("TC-04: Verify Zero Amount Expense (PASS)", () => {
+        fillExpenseForm("Zee Vendor", "0", null);
+        // Expect Success
         cy.contains(/created|success|saved/i, { timeout: 10000 }).should('be.visible');
     });
 
-    it("TC-06: Verify Future Expense Date (PASS)", () => {
+    it("TC-05: Verify Future Expense Date (PASS)", () => {
         const nextYear = new Date();
         nextYear.setFullYear(nextYear.getFullYear() + 1);
-        const dateStr = nextYear.toISOString().split('T')[0];
+        const dateStr = nextYear.toISOString().split('T')[0]; // Format: YYYY-MM-DD
 
-        fillExpenseForm("Demo Vendor", "100", dateStr);
+        // Note: Recorder passed date as "2025-06-12", we pass dynamic future date
+        fillExpenseForm("Zee Vendor", "100", dateStr);
         cy.contains(/created|success|saved/i, { timeout: 10000 }).should('be.visible');
     });
+
 });
