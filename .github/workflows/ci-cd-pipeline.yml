@@ -357,8 +357,7 @@ jobs:
               # to cover the effect of the automated renames.
               npx cypress run \
                 --config baseUrl="http://127.0.0.1:8000" \
-                --config-file cypress.config.cjs \
-                --spec "SQE/**/*.{cy.js,cy.cjs}"
+                --config-file cypress.config.cjs
   # --- 4. Staging Deployment ---
   deploy-staging:
     name: Deploy to Staging
