@@ -122,7 +122,7 @@ jobs:
           echo "Artifact size: $(du -h *.tar.gz | cut -f1)"
       
       - name: Upload Build Artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: invoice-ninja-build
           path: ./*.tar.gz
@@ -212,7 +212,7 @@ jobs:
     
     steps:
       - name: Download Build Artifact
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: invoice-ninja-build
       
@@ -242,7 +242,7 @@ jobs:
     
     steps:
       - name: Download Build Artifact
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: invoice-ninja-build
       
@@ -268,7 +268,7 @@ jobs:
     
     steps:
       - name: Download Build Artifact
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: invoice-ninja-build
       
@@ -389,7 +389,7 @@ jobs:
           echo "=========================================="
       
       - name: Download Build Artifact
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: invoice-ninja-build
       
