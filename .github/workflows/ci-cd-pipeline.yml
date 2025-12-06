@@ -351,10 +351,12 @@ jobs:
     
           - name: Run Cypress Tests
             run: |
+              # FINAL FIX: Targetting the correct SQE path and searching for both .cy.js AND .cy.cjs 
+              # to cover the effect of the automated renames.
               npx cypress run \
                 --config baseUrl="http://127.0.0.1:8000" \
                 --config-file cypress.config.cjs \
-                --spec "tests/cypress/SQE/**/*.cy.js"
+                --spec "tests/cypress/SQE/**/*.{cy.js,cy.cjs}"
   # --- 4. Staging Deployment ---
   deploy-staging:
     name: Deploy to Staging
