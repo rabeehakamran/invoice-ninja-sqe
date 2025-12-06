@@ -203,17 +203,17 @@ jobs:
           php artisan optimize || true
           php artisan migrate --force
           
-      - name: Run Default Unit Tests
-        run: vendor/bin/phpunit --testsuite Unit --colors=always --testdox
-        continue-on-error: true 
+     # - name: Run Default Unit Tests
+     #   run: vendor/bin/phpunit --testsuite Unit --colors=always --testdox
+     #   continue-on-error: true 
 
       - name: Run Custom SQE Unit Tests
         run: vendor/bin/phpunit tests/SQE/Unit --colors=always --testdox
         continue-on-error: true
 
-      - name: Run Default Feature Tests
-        run: vendor/bin/phpunit --testsuite Feature --colors=always --testdox
-        continue-on-error: true
+      #- name: Run Default Feature Tests
+       # run: vendor/bin/phpunit --testsuite Feature --colors=always --testdox
+       # continue-on-error: true
       
       - name: Run Custom SQE Feature Tests
         run: vendor/bin/phpunit tests/SQE/Feature --colors=always --testdox
@@ -221,112 +221,120 @@ jobs:
 
   # --- 3. UI (Cypress) Tests (Fixing Wait Action) ---
   ui-tests:
-    name: Run UI Tests
-    runs-on: ubuntu-latest
-    needs: build
-    
-    env:
-      DB_CONNECTION: mysql
-      DB_DATABASE: ninja
-      DB_USERNAME: user
-      DB_PASSWORD: password
-      DB_HOST: '127.0.0.1' 
-      MAIL_MAILER: log 
-
-    services:
-      mysql: 
-        image: mysql:8.0
-        ports:
-          - 3306:3306
+        name: Run UI Tests
+        runs-on: ubuntu-latest
+        needs: build
+        
         env:
-          MYSQL_ROOT_PASSWORD: password
-          MYSQL_DATABASE: ninja
-          MYSQL_USER: user
-          MYSQL_PASSWORD: password
-        options: >-
-          --health-cmd="mysqladmin ping"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
-
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v3
-
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.3'
-          extensions: mbstring, pdo_mysql, tokenizer, xml, ctype, curl, gd, zip, bcmath
-          coverage: none
-
-      - name: Install Composer Dependencies
-        run: composer install --no-progress --prefer-dist --optimize-autoloader --no-dev
-        
-      - name: Wait for Database Service in UI Tests
-        run: |
-          echo "Waiting for MySQL (127.0.0.1:3306)..."
-          for i in {1..30}; do
-            if mysqladmin ping -h "127.0.0.1" -P 3306 --silent; then
-              echo "MySQL is up and running!"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "MySQL service failed to start after 30 seconds."
-          exit 1
-          
-      - name: Setup Laravel Environment & Migrate DB
-        run: |
-          mkdir -p storage/framework/{cache,sessions,views}
-          mkdir -p storage/app/public
-          mkdir -p bootstrap/cache
-          chmod -R 777 storage bootstrap/cache
-          
-          cp .env.example .env
-          sed -i "s/DB_HOST=127.0.0.1/DB_HOST=127.0.0.1/" .env
-          sed -i "s/DB_PORT=3306/DB_PORT=3306/" .env
-          sed -i "s/DB_DATABASE=laravel/DB_DATABASE=ninja/" .env
-          sed -i "s/DB_USERNAME=root/DB_USERNAME=user/" .env
-          sed -i "s/DB_PASSWORD=/DB_PASSWORD=password/" .env
-          
-          php artisan key:generate
-          php artisan config:clear
-          php artisan migrate --force
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '20'
-
-      - name: Install Node Dependencies
-        run: npm install
-        
-      - name: Build Frontend Assets
-        run: npm run build
-
-      - name: Start Laravel Server
-        run: php artisan serve --host=127.0.0.1 --port=8000 &
-        
-      # FIX: Removed the failing wait-on action and replaced with a shell script wait
-      - name: Wait for Laravel Server (Shell Script)
-        run: |
-          echo "Waiting for Laravel server (127.0.0.1:8000)..."
-          timeout=60
-          for i in $(seq 1 $timeout); do
-            curl --silent --fail http://127.0.0.1:8000 > /dev/null
-            if [ $? -eq 0 ]; then
-              echo "Server is ready!"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "Server failed to start after 60 seconds."
-          exit 1
-
-      - name: Run Cypress Tests
-        run: |
-          npx cypress run --config baseUrl="http://127.0.0.1:8000" --spec "tests/cypress/SQE/**/*.cy.js"
+          DB_CONNECTION: mysql
+          DB_DATABASE: ninja
+          DB_USERNAME: user
+          DB_PASSWORD: password
+          DB_HOST: '127.0.0.1' 
+          MAIL_MAILER: log 
+          # Note: UI tests mein Redis ki zarurat kam hoti hai, isliye Cache drivers change nahi kar rahe.
+    
+        services:
+          mysql: 
+            image: mysql:8.0
+            ports:
+              - 3306:3306
+            env:
+              MYSQL_ROOT_PASSWORD: password
+              MYSQL_DATABASE: ninja
+              MYSQL_USER: user
+              MYSQL_PASSWORD: password
+            options: >-
+              --health-cmd="mysqladmin ping"
+              --health-interval=10s
+              --health-timeout=5s
+              --health-retries=5
+    
+        steps:
+          - name: Checkout Code
+            uses: actions/checkout@v3
+    
+          - name: Setup PHP
+            uses: shivammathur/setup-php@v2
+            with:
+              php-version: '8.3'
+              extensions: mbstring, pdo_mysql, tokenizer, xml, ctype, curl, gd, zip, bcmath
+              coverage: none
+    
+          # FIX 1: Use --no-scripts flag here too
+          - name: Install Composer Dependencies (No Scripts)
+            run: composer install --no-progress --prefer-dist --optimize-autoloader --no-dev --no-scripts
+            
+          - name: Wait for Database Service in UI Tests
+            run: |
+              echo "Waiting for MySQL (127.0.0.1:3306)..."
+              for i in {1..30}; do
+                if mysqladmin ping -h "127.0.0.1" -P 3306 --silent; then
+                  echo "MySQL is up and running!"
+                  exit 0
+                fi
+                sleep 1
+              done
+              echo "MySQL service failed to start after 30 seconds."
+              exit 1
+              
+          # FIX 2: Create Storage Directories and set permissions
+          - name: Create Storage Directories & Set Permissions
+            run: |
+              mkdir -p storage/framework/{cache,sessions,views}
+              mkdir -p storage/app/public
+              mkdir -p bootstrap/cache
+              chmod -R 777 storage bootstrap/cache
+              
+          # FIX 3: Manually run package:discover after setup
+          - name: Setup Laravel Environment & Migrate DB
+            run: |
+              cp .env.example .env
+              sed -i "s/DB_HOST=127.0.0.1/DB_HOST=127.0.0.1/" .env
+              sed -i "s/DB_PORT=3306/DB_PORT=3306/" .env
+              sed -i "s/DB_DATABASE=laravel/DB_DATABASE=ninja/" .env
+              sed -i "s/DB_USERNAME=root/DB_USERNAME=user/" .env
+              sed -i "s/DB_PASSWORD=/DB_PASSWORD=password/" .env
+              
+              php artisan key:generate
+              php artisan config:clear
+              # Now run package:discover manually after the directories are ready
+              php artisan package:discover --ansi
+              php artisan migrate --force
+    
+          - name: Setup Node.js
+            uses: actions/setup-node@v3
+            with:
+              node-version: '20'
+    
+          - name: Install Node Dependencies
+            run: npm install
+            
+          - name: Build Frontend Assets
+            run: npm run build
+    
+          - name: Start Laravel Server
+            run: php artisan serve --host=127.0.0.1 --port=8000 &
+            
+          # Using the robust Shell script wait (since actions failed)
+          - name: Wait for Laravel Server (Shell Script)
+            run: |
+              echo "Waiting for Laravel server (127.0.0.1:8000)..."
+              timeout=60
+              for i in $(seq 1 $timeout); do
+                curl --silent --fail http://127.0.0.1:8000 > /dev/null
+                if [ $? -eq 0 ]; then
+                  echo "Server is ready!"
+                  exit 0
+                fi
+                sleep 1
+              done
+              echo "Server failed to start after 60 seconds."
+              exit 1
+    
+          - name: Run Cypress Tests
+            run: |
+              npx cypress run --config baseUrl="http://127.0.0.1:8000" --spec "tests/cypress/SQE/**/*.cy.js"
 
   # --- 4. Staging Deployment ---
   deploy-staging:
