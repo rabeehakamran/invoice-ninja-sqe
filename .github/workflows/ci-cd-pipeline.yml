@@ -108,7 +108,7 @@ jobs:
           mkdir build
           
           # FIX: Removed -v (verbose) flag to prevent log overflow
-          rsync -a \ 
+          rsync -a \
             --exclude="vendor" \
             --exclude="node_modules" \
             --exclude="tests" \
