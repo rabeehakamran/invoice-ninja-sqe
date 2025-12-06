@@ -14,7 +14,7 @@ module.exports = defineConfig({
             return require('./tests/cypress/plugins/index.cjs')(on, config)
         },
         baseUrl: 'http://ninja.test:8000/',
-        specPattern: 'tests/cypress/integration/**/*.cy.{js,jsx,ts,tsx}',
+        specPattern: 'tests/cypress/e2e/**/*.cy.{js,cjs}',
         supportFile: 'tests/cypress/support/index.js',
     },
 })
