@@ -58,5 +58,14 @@ Route::post('gocardless/oauth/connect/webhook', GoCardlessOAuthWebhookController
 Route::get('gocardless/oauth/connect/{token}', [GoCardlessOAuthController::class, 'connect']);
 
 Route::redirect('buy_now', 'https://invoiceninja.invoicing.co/client/subscriptions/O5xe7Rwd7r/purchase', 301);
+Route::get('/__cypress__/csrf_token', function () {
+    return response()->json([
+        'csrf_token' => csrf_token()
+    ]);
+});
+if (env('CYPRESS') === true) {
+    require __DIR__.'/__cypress__.php';
+}
+
 
 \Illuminate\Support\Facades\Broadcast::routes(['middleware' => ['token_auth']]);
