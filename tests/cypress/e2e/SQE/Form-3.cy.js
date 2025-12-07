@@ -19,7 +19,7 @@ describe("Form 14: Client Module Automation (Final Fix via Recording)", () => {
     });
 
     const login = (email, password) => {
-        cy.visit("https://app.invoicing.co/", { failOnStatusCode: false });
+        cy.visit("/", { failOnStatusCode: false });
         cy.viewport(1280, 720);
         cy.wait(2000);
         cy.get('input').should('have.length.gt', 1);

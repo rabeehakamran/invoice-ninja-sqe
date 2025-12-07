@@ -18,7 +18,7 @@ describe("Form 7: Payments Module Automation", () => {
   };
 
   const fillPaymentForm = (client, amount, type, date) => {
-    cy.visit('/#/payments/create');
+    cy.visit('/payments/create');
     cy.wait(8000);
 
     // 1. Client

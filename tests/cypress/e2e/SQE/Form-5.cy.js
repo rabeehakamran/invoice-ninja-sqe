@@ -17,7 +17,7 @@ describe("Form 5: Invoices Module Automation", () => {
   };
 
   const fillInvoiceForm = (clientName, itemDesc, unitCost, discount) => {
-    cy.visit('/#/invoices/create');
+    cy.visit('/invoices/create');
     cy.wait(10000);
 
     // 1. Client

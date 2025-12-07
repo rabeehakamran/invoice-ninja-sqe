@@ -9,7 +9,7 @@ describe("Form 16: Transactions Module Automation (Dropdown Fix)", () => {
         login("najtahir75@gmail.com", "12345678");
         
         // Navigate
-        cy.visit("https://app.invoicing.co/#/transactions/create");
+        cy.visit("/transactions/create");
         cy.wait(5000); 
     });
 

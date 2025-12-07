@@ -12,7 +12,7 @@ describe("Form 15: Recurring Expenses Module Automation", () => {
         login("najtahir75@gmail.com", "12345678");
         
         // Navigate
-        cy.visit("https://app.invoicing.co/#/recurring_expenses/create");
+        cy.visit("/recurring_expenses/create");
         
         // Page Load Confirm
         cy.contains(/New Recurring Expense|Recurring Expense Details/i, { timeout: 15000 }).should('be.visible');

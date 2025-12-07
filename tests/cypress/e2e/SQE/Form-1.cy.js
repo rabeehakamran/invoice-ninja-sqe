@@ -24,7 +24,7 @@ describe("Form 1: Registration Module (Live Site)", () => {
 
   beforeEach(() => {
     // Live site visit
-    cy.visit("/#/register", { failOnStatusCode: false });
+    cy.visit("/register", { failOnStatusCode: false });
     cy.wait(8000); // Flutter Load Wait
     cy.get('input', {timeout: 40000}).should('exist');
   });

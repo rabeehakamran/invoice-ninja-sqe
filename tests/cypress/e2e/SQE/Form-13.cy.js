@@ -12,7 +12,7 @@ describe("Form 13: Purchase Order Module Automation", () => {
         login("hashaamwbhatti@gmail.com", "12345678");
         
         // Navigate
-        cy.visit("https://app.invoicing.co/#/purchase_orders/create");
+        cy.visit("/purchase_orders/create");
         
         // Page Load Confirm
         cy.contains(/New Purchase Order|PO Details/i, { timeout: 15000 }).should('be.visible');

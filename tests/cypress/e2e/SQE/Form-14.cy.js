@@ -12,7 +12,7 @@ describe("Form 14: Expenses Module Automation (Final Recorder Fix)", () => {
         login("najtahir75@gmail.com", "12345678");
         
         // Navigate
-        cy.visit("https://app.invoicing.co/#/expenses/create");
+        cy.visit("/expenses/create");
         
         // Page Load Confirm
         cy.contains('Enter Expense', { timeout: 15000 }).should('be.visible');

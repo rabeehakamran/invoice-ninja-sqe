@@ -20,7 +20,7 @@ describe("Form 8: Quotes Module Automation (Live Site)", () => {
 
   const fillQuoteForm = (client, quoteDate, validUntil, cost, discount) => {
     // FIX: Force visit use kar rahe hain
-    cy.visit('/#/quotes/create');
+    cy.visit('/quotes/create');
     cy.wait(8000); 
 
     // 1. Client Selection

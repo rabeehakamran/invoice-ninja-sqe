@@ -16,7 +16,7 @@ describe("Form 6: Recurring Invoices Automation (Live Site)", () => {
   };
 
   const fillRecurringForm = (client, freq, cycles, cost, startDate) => {
-    cy.visit('/#/recurring_invoices/create');
+    cy.visit('/recurring_invoices/create');
     cy.wait(10000);
 
     // 1. Client Selection

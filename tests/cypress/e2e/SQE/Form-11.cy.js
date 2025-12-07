@@ -13,7 +13,7 @@ describe("Form 11: Tasks Module Automation ", () => {
     });
 
     const login = (email, password) => {
-        cy.visit("https://app.invoicing.co/", { failOnStatusCode: false });
+        cy.visit("/", { failOnStatusCode: false });
         cy.viewport(1280, 720);
         cy.wait(2000);
         

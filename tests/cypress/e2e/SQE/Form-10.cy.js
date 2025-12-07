@@ -1,7 +1,7 @@
 describe("10", () => {
   it("TC 10.1", () => {
     cy.viewport(1365, 901);
-    cy.visit("https://app.invoicing.co/#/login");
+    cy.visit("/login");
     cy.get("section:nth-of-type(1) input").click();
     cy.get("section:nth-of-type(1) input").type("hashaamw29@gmail.com");
     cy.get("#password").click();

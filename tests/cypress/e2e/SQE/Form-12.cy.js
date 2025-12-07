@@ -12,7 +12,7 @@ describe("Form 12: Vendor Module Automation ", () => {
         login("hashaamwbhatti@gmail.com", "12345678");
         
         // Navigate and wait for page load
-        cy.visit("https://app.invoicing.co/#/vendors/create");
+        cy.visit("/vendors/create");
         cy.wait(3000); // Wait for form to load
     });
 
