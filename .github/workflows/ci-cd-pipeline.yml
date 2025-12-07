@@ -342,11 +342,10 @@ jobs:
               name: invoice-ninja-build
               path: /tmp/staging_artifacts 
               
-          # FIX 1: Rename the artifact on the Runner so we know the exact name.
           - name: Rename Artifact for Fixed Naming
             run: mv /tmp/staging_artifacts/invoice-ninja-*.tar.gz /tmp/staging_artifacts/invoice-ninja-deployment.tar.gz
               
-          # FIX 2: Transfer the artifact with the fixed name to remote /tmp
+          # FIX 1: Transfer Artifact to STAGING HOME Directory (~)
           - name: Transfer Artifact to Staging Server
             uses: appleboy/ssh-action@v0.1.7
             with:
@@ -354,10 +353,10 @@ jobs:
               username: ${{ secrets.STAGING_USER }}
               key: ${{ secrets.STAGING_KEY }}
               port: ${{ secrets.STAGING_PORT }}
-              source: /tmp/staging_artifacts/invoice-ninja-deployment.tar.gz # Fixed Source
-              target: /tmp                                                  # Target is /tmp
+              source: /tmp/staging_artifacts/invoice-ninja-deployment.tar.gz 
+              target: ~/   # <--- TARGET LOCATION CHANGED TO HOME DIRECTORY!
       
-          # FIX 3: Execute script on server using the fixed artifact name
+          # FIX 2: Execute Deployment Script (Use Home Directory as Source)
           - name: Execute Deployment Script on Staging
             uses: appleboy/ssh-action@v0.1.7
             with:
@@ -370,10 +369,12 @@ jobs:
                 
                 DEPLOY_PATH="/var/www/invoiceninja"
                 TEMP_EXTRACT_PATH="/tmp/ninja_staging_temp"
-                ARTIFACT_FILE="/tmp/invoice-ninja-deployment.tar.gz" # <-- FIXED FILE PATH
+                ARTIFACT_FILE="~/invoice-ninja-deployment.tar.gz" # <--- ARTIFACT LOCATION CHANGED
                 
-                if [ ! -f "$ARTIFACT_FILE" ]; then # Check if file exists
-                  echo "Error: Artifact not found at $ARTIFACT_FILE. Deployment aborted."
+                # Check if the file exists in the user's home directory
+                if [ ! -f "$ARTIFACT_FILE" ]; then
+                  echo "Error: Artifact not found at $ARTIFACT_FILE."
+                  echo "CHECKLIST: 1. Are SSH secrets correct? 2. Is SSH port open? 3. Did the transfer step fail silently?"
                   exit 1
                 fi
     
@@ -381,6 +382,8 @@ jobs:
                 sudo chown -R ${{ secrets.STAGING_USER }}:${{ secrets.STAGING_USER }} $DEPLOY_PATH
                 
                 mkdir -p $TEMP_EXTRACT_PATH
+                
+                # Extract artifact from Home Directory
                 tar -xzf $ARTIFACT_FILE -C $TEMP_EXTRACT_PATH
     
                 rm -rf $DEPLOY_PATH/*
@@ -398,7 +401,8 @@ jobs:
                 sudo systemctl restart php8.3-fpm || true
                 sudo systemctl restart nginx || true
                 
-                rm -f $ARTIFACT_FILE
+                # Cleanup
+                rm -f $ARTIFACT_FILE # Remove from home directory
                 rm -rf $TEMP_EXTRACT_PATH
                 
                 echo "STAGING DEPLOYMENT COMPLETED"
