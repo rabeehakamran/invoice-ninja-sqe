@@ -1,5 +1,4 @@
 name: Invoice Ninja CI/CD Pipeline
-# Chal jao please
 
 on:
   push:
@@ -10,7 +9,7 @@ on:
       - main
 
 jobs:
-  # --- 1. Build Stage (No Change Needed) ---
+  # --- 1. Build Stage ---
   build:
     name: Build Application & Create Artifacts
     runs-on: ubuntu-latest
@@ -114,7 +113,9 @@ jobs:
           name: invoice-ninja-build
           path: ./*.tar.gz
           retention-days: 7
-  # --- 2. Backend Tests (No Change Needed) ---
+
+  ---
+  # --- 2. Backend Tests (SPACES FIXED) ---
   backend-tests:
     name: Run Backend Tests
     runs-on: ubuntu-latest
@@ -128,9 +129,9 @@ jobs:
       DB_HOST: '127.0.0.1'
       REDIS_HOST: '127.0.0.1'
       REDIS_PORT: 6379
-      CACHE_DRIVER: array      
-      QUEUE_CONNECTION: sync    
-      SESSION_DRIVER: array     
+      CACHE_DRIVER: array       # FIX: Spaces removed
+      QUEUE_CONNECTION: sync    # FIX: Spaces removed
+      SESSION_DRIVER: array     # FIX: Spaces removed
       MAIL_MAILER: log
 
     services:
@@ -187,12 +188,6 @@ jobs:
       - name: Setup Laravel Environment & Migrate DB
         run: |
           cp .env.example .env
-          sed -i "s/DB_HOST=127.0.0.1/DB_HOST=127.0.0.1/" .env
-          sed -i "s/DB_PORT=3306/DB_PORT=3306/" .env
-          sed -i "s/DB_DATABASE=laravel/DB_DATABASE=ninja/" .env
-          sed -i "s/DB_USERNAME=root/DB_USERNAME=root/" .env
-          sed -i "s/DB_PASSWORD=/DB_PASSWORD=ninja/" .env
-          
           php artisan key:generate
           php artisan config:clear
           php artisan package:discover --ansi
@@ -207,7 +202,9 @@ jobs:
       - name: Run Custom SQE Feature Tests
         run: vendor/bin/phpunit tests/SQE/Feature --colors=always --testdox
         continue-on-error: true
-  # --- 3. UI (Cypress) Tests (FIXED: Server Start & Naming) ---
+
+  ---
+  # --- 3. UI (Cypress) Tests (FIXED: CONFIG RENAME & SERVER START) ---
   ui-tests:
     name: Run UI Tests
     runs-on: ubuntu-latest
@@ -299,7 +296,18 @@ jobs:
       - name: Build Frontend Assets
         run: npm run build
         
-      # FIX 1: Add missing server start and wait logic
+      # FIX: Rename JS Config/Plugin Files to CJS to fix ES Module Scope error (image_4fcd20.png)
+      - name: Rename JS Config/Plugin Files to CJS
+        run: |
+          if [ -f cypress.config.js ]; then
+            mv cypress.config.js cypress.config.cjs
+            echo "Renamed cypress.config.js to .cjs"
+          fi
+          if [ -d tests/cypress/plugins ]; then
+              find tests/cypress/plugins/ -name "*.js" -type f -exec bash -c 'mv "$0" "${0/.js/.cjs}"' {} \;
+          fi
+          
+      # FIX: Start Laravel Server
       - name: Start Laravel Server (Testing Environment)
         run: php artisan serve --env=testing --host=127.0.0.1 --port=8000 &
         
@@ -319,8 +327,10 @@ jobs:
           exit 1
           
       - name: Run Cypress Tests
-        run: npx cypress run --config baseUrl="http://127.0.0.1:8000"
+        run: npx cypress run --config baseUrl="http://127.0.0.1:8000" --config-file cypress.config.cjs
         continue-on-error: true
+
+  ---
   # --- 4. Staging Deployment (FIXED: Artifact-based Deployment) ---
   deploy-staging:
     name: Deploy to Staging
@@ -336,7 +346,6 @@ jobs:
           name: invoice-ninja-build
           path: /tmp/staging_artifacts 
           
-      # FIX: Use scp capability of appleboy/ssh-action to transfer the artifact
       - name: Transfer Artifact to Staging Server
         uses: appleboy/ssh-action@v0.1.7
         with:
@@ -344,12 +353,9 @@ jobs:
           username: ${{ secrets.STAGING_USER }}
           key: ${{ secrets.STAGING_KEY }}
           port: ${{ secrets.STAGING_PORT }}
-          # Source is the path on the GitHub Runner machine
           source: /tmp/staging_artifacts/*.tar.gz
-          # Target is the temporary path on the Remote Server
           target: /tmp 
   
-      # FIX: Execute script on server to extract and deploy the artifact
       - name: Execute Deployment Script on Staging
         uses: appleboy/ssh-action@v0.1.7
         with:
@@ -362,49 +368,41 @@ jobs:
             
             DEPLOY_PATH="/var/www/invoiceninja"
             TEMP_EXTRACT_PATH="/tmp/ninja_staging_temp"
-            ARTIFACT_FILE=$(find /tmp -maxdepth 1 -name "invoice-ninja-*.tar.gz" | head -n 1) # Find the transferred file
+            ARTIFACT_FILE=$(find /tmp -maxdepth 1 -name "invoice-ninja-*.tar.gz" | head -n 1)
             
             if [ -z "$ARTIFACT_FILE" ]; then
               echo "Error: Artifact not found in /tmp. Deployment aborted."
               exit 1
             fi
 
-            # 1. Prepare target directory
             sudo mkdir -p $DEPLOY_PATH
             sudo chown -R ${{ secrets.STAGING_USER }}:${{ secrets.STAGING_USER }} $DEPLOY_PATH
             
-            # 2. Extract artifact
             mkdir -p $TEMP_EXTRACT_PATH
             tar -xzf $ARTIFACT_FILE -C $TEMP_EXTRACT_PATH
 
-            # 3. Deploy by swapping/copying
-            # IMPORTANT: This assumes $DEPLOY_PATH is the webroot
             rm -rf $DEPLOY_PATH/*
             cp -r $TEMP_EXTRACT_PATH/build/. $DEPLOY_PATH/
             
-            # 4. Run post-deployment steps (Configuration/Cleanup)
             cd $DEPLOY_PATH || exit 1
             
-            # Run post-update scripts (Composer/Node steps are already done in Build)
-            # You might need to adjust this depending on what files were included in your artifact
             php artisan config:cache
             php artisan route:cache
             php artisan view:cache
 
-            # Set permissions for web server
             sudo chown -R www-data:www-data storage bootstrap/cache
             sudo chmod -R 775 storage bootstrap/cache
             
-            # Restart services
             sudo systemctl restart php8.3-fpm || true
             sudo systemctl restart nginx || true
             
-            # 5. Cleanup
             rm -f $ARTIFACT_FILE
             rm -rf $TEMP_EXTRACT_PATH
             
             echo "STAGING DEPLOYMENT COMPLETED"
-  # --- 5. Production Deployment (FIXED: Artifact-based Deployment) ---
+
+  ---
+  # --- 5. Production Deployment ---
   deploy-production:
     name: Deploy to Production
     runs-on: ubuntu-latest
@@ -443,49 +441,39 @@ jobs:
             
             DEPLOY_PATH="/var/www/invoiceninja"
             TEMP_EXTRACT_PATH="/tmp/ninja_production_temp"
-            ARTIFACT_FILE=$(find /tmp -maxdepth 1 -name "invoice-ninja-*.tar.gz" | head -n 1) # Find the transferred file
-            
+            ARTIFACT_FILE=$(find /tmp -maxdepth 1 -name "invoice-ninja-*.tar.gz" | head -n 1)
+
             if [ -z "$ARTIFACT_FILE" ]; then
               echo "Error: Artifact not found in /tmp. Deployment aborted."
               exit 1
             fi
 
-            # 1. Enable Maintenance mode
             php artisan down --render="maintenance" 2>/dev/null || echo "Maintenance mode simulated"
             
-            # 2. Prepare target directory
             sudo mkdir -p $DEPLOY_PATH
             sudo chown -R ${{ secrets.PRODUCTION_USER }}:${{ secrets.PRODUCTION_USER }} $DEPLOY_PATH
             
-            # 3. Extract artifact
             mkdir -p $TEMP_EXTRACT_PATH
             tar -xzf $ARTIFACT_FILE -C $TEMP_EXTRACT_PATH
 
-            # 4. Deploy by swapping/copying
             rm -rf $DEPLOY_PATH/*
             cp -r $TEMP_EXTRACT_PATH/build/. $DEPLOY_PATH/
             
-            # 5. Run post-deployment steps (Configuration/Cleanup)
             cd $DEPLOY_PATH || exit 1
             
-            # Run post-update scripts
             php artisan migrate --force || exit 1
             php artisan config:cache
             php artisan route:cache
             php artisan view:cache
 
-            # Set permissions for web server
             sudo chown -R www-data:www-data storage bootstrap/cache
             sudo chmod -R 775 storage bootstrap/cache
             
-            # 6. Disable Maintenance mode
             php artisan up 2>/dev/null || echo "Maintenance mode disabled"
             
-            # 7. Restart services
             sudo systemctl restart php8.3-fpm || true
             sudo systemctl restart nginx || true
             
-            # 8. Cleanup
             rm -f $ARTIFACT_FILE
             rm -rf $TEMP_EXTRACT_PATH
 
