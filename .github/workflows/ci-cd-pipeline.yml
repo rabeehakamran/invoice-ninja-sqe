@@ -220,6 +220,7 @@ jobs:
         continue-on-error: true
 
 # --- 3. UI (Cypress) Tests (Applied Final Path Fix) ---
+  # --- 3. UI (Cypress) Tests (FINAL, CLEANED, AND STABLE SETUP) ---
   ui-tests:
         name: Run UI Tests
         runs-on: ubuntu-latest
@@ -231,8 +232,9 @@ jobs:
           DB_USERNAME: user
           DB_PASSWORD: password
           DB_HOST: '127.0.0.1' 
-          MAIL_MAILER: log
-          APP_CYPRESS: true
+          MAIL_MAILER: log 
+          APP_ENV: testing    # Explicitly set testing environment
+          APP_CYPRESS: true   # Keep this env var if your app needs it
     
         services:
           mysql: 
@@ -284,7 +286,7 @@ jobs:
               mkdir -p bootstrap/cache
               chmod -R 777 storage bootstrap/cache
               
-          - name: Setup Laravel Environment & Migrate DB
+          - name: Setup Laravel Environment, Migrate & Seed DB
             run: |
               cp .env.example .env
               sed -i "s/DB_HOST=127.0.0.1/DB_HOST=127.0.0.1/" .env
@@ -297,6 +299,8 @@ jobs:
               php artisan config:clear
               php artisan package:discover --ansi
               php artisan migrate --force
+              # CRITICAL FIX: Add seeding to provide necessary test data (e.g., users)
+              php artisan db:seed --force 
     
           - name: Setup Node.js
             uses: actions/setup-node@v3
@@ -309,46 +313,33 @@ jobs:
           - name: Build Frontend Assets
             run: npm run build
             
-          # FIX 1: Rename all necessary JS files to CJS recursively
+          # FIX 1: Rename JS Config/Plugin Files to CJS
           - name: Rename JS Config/Plugin Files to CJS
             run: |
-              # 1. Rename main config (cypress.config.js -> cypress.config.cjs)
               if [ -f cypress.config.js ]; then
                 mv cypress.config.js cypress.config.cjs
                 echo "Renamed cypress.config.js to .cjs"
               fi
-              
-              # 2. Rename ALL *.js files in plugins directory to *.cjs (recursive fix)
               if [ -d tests/cypress/plugins ]; then
                   find tests/cypress/plugins/ -name "*.js" -type f -exec bash -c 'mv "$0" "${0/.js/.cjs}" && echo "Renamed $0 to ${0/.js/.cjs}"' {} \;
               fi
-              
-              echo "All plugins and config files prepared for CommonJS compatibility."
     
-          # FIX 2: Update the exact path inside cypress.config.cjs to load the new .cjs plugin file
-          - name: Update Config to Load .cjs Plugin (Final Fix)
+          # FIX 2 & 3: Update Config & Inject Task Registration
+          - name: Update Config and Inject Tasks
             run: |
-              # This specifically targets the 'index.js' path inside the require function and fixes it to 'index.cjs'
+              # Update path in config
               sed -i "s|require('./tests/cypress/plugins/index.js')|require('./tests/cypress/plugins/index.cjs')|g" cypress.config.cjs
-              echo "Successfully updated plugin path inside cypress.config.cjs to use .cjs"
-          # FIX 3: Registering cy.task events for the environment variables
-          - name: Start Backend Server
-            run: php artisan serve --host=127.0.0.1 --port=8000 &
-
-          - name: Inject Cypress Task Registration (Final Placement)
-            run: |
-              # 1. Define the task registration code block
+    
+              # Inject cy.task registration code into index.cjs
               TASK_CODE='on("task", {\
               "activateCypressEnvFile": () => { console.log("CYPRESS TASK: EnvFile activated (Mocked)"); return null; },\
               "activateLocalEnvFile": () => { console.log("CYPRESS TASK: Local Env activated (Mocked)"); return null; }\
               });'
-    
-              # 2. Use 'sed' to inject the TASK_CODE before the 'return config;' line in index.cjs
               sed -i "/return config;/i \ \ \ \ ${TASK_CODE}" tests/cypress/plugins/index.cjs
-          
-              echo "Injected necessary cy.task registration into tests/cypress/plugins/index.cjs."
-          - name: Start Laravel Server
-            run: php artisan serve --host=127.0.0.1 --port=8000 &
+            
+          # FIX 4: Single Server Start with explicit environment
+          - name: Start Laravel Server (Testing Environment)
+            run: php artisan serve --env=testing --host=127.0.0.1 --port=8000 &
             
           - name: Wait for Laravel Server (Shell Script)
             run: |
@@ -364,13 +355,10 @@ jobs:
               done
               echo "Server failed to start after 60 seconds."
               exit 1
-          - name: Change working directory to Cypress project
-            run: cd tests/cypress
-
+    
           - name: Run Cypress Tests
             run: |
-              # FINAL FIX: Targetting the correct SQE path and searching for both .cy.js AND .cy.cjs 
-              # to cover the effect of the automated renames.
+              # Use robust glob pattern to ensure all spec files are found
               npx cypress run \
                 --config baseUrl="http://127.0.0.1:8000" \
                 --config-file cypress.config.cjs
