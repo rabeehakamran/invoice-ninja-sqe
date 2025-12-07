@@ -347,7 +347,7 @@ jobs:
               
           # FIX 1: Transfer Artifact to STAGING HOME Directory (~)
           - name: Transfer Artifact to Staging Server
-            uses: appleboy/ssh-action@v0.1.7
+            uses: appleboy/scp-action@v0.1.4
             with:
               host: ${{ secrets.STAGING_HOST }}
               username: ${{ secrets.STAGING_USER }}
