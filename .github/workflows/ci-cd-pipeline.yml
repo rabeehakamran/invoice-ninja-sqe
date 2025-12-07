@@ -401,79 +401,65 @@ jobs:
               rm -rf $TEMP_EXTRACT_PATH
               
               echo "STAGING DEPLOYMENT COMPLETED SUCCESSFULLY"
-  # --- 5. Production Deployment ---
+  # --- 5. Production Deployment (Self-Hosted + Manual Approval) ---
   deploy-production:
-    name: Deploy to Production
-    runs-on: ubuntu-latest
-    needs: deploy-staging
-    environment: production
-
-    steps:
-      - name: Manual Approval Check
-        run: echo "Waiting for manual approval in GitHub Environments..."
-
-      - name: Download Build Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: invoice-ninja-build
-          path: /tmp/production_artifacts
-
-      - name: Transfer Artifact to Production Server
-        uses: appleboy/ssh-action@v0.1.7
-        with:
-          host: ${{ secrets.PRODUCTION_HOST }}
-          username: ${{ secrets.PRODUCTION_USER }}
-          key: ${{ secrets.PRODUCTION_KEY }}
-          port: ${{ secrets.PRODUCTION_PORT }}
-          source: /tmp/production_artifacts/*.tar.gz 
-          target: /tmp
-
-      - name: Execute Deployment Script on Production
-        uses: appleboy/ssh-action@v0.1.7
-        with:
-          host: ${{ secrets.PRODUCTION_HOST }}
-          username: ${{ secrets.PRODUCTION_USER }}
-          key: ${{ secrets.PRODUCTION_KEY }}
-          port: ${{ secrets.PRODUCTION_PORT }}
-          script: |
-            echo "PRODUCTION DEPLOYMENT STARTED"
-            
-            DEPLOY_PATH="/var/www/invoiceninja"
-            TEMP_EXTRACT_PATH="/tmp/ninja_production_temp"
-            ARTIFACT_FILE=$(find /tmp -maxdepth 1 -name "invoice-ninja-*.tar.gz" | head -n 1)
-
-            if [ -z "$ARTIFACT_FILE" ]; then
-              echo "Error: Artifact not found in /tmp. Deployment aborted."
-              exit 1
-            fi
-
-            php artisan down --render="maintenance" 2>/dev/null || echo "Maintenance mode simulated"
-            
-            sudo mkdir -p $DEPLOY_PATH
-            sudo chown -R ${{ secrets.PRODUCTION_USER }}:${{ secrets.PRODUCTION_USER }} $DEPLOY_PATH
-            
-            mkdir -p $TEMP_EXTRACT_PATH
-            tar -xzf $ARTIFACT_FILE -C $TEMP_EXTRACT_PATH
-
-            rm -rf $DEPLOY_PATH/*
-            cp -r $TEMP_EXTRACT_PATH/build/. $DEPLOY_PATH/
-            
-            cd $DEPLOY_PATH || exit 1
-            
-            php artisan migrate --force || exit 1
-            php artisan config:cache
-            php artisan route:cache
-            php artisan view:cache
-
-            sudo chown -R www-data:www-data storage bootstrap/cache
-            sudo chmod -R 775 storage bootstrap/cache
-            
-            php artisan up 2>/dev/null || echo "Maintenance mode disabled"
-            
-            sudo systemctl restart php8.3-fpm || true
-            sudo systemctl restart nginx || true
-            
-            rm -f $ARTIFACT_FILE
-            rm -rf $TEMP_EXTRACT_PATH
-
-            echo "PRODUCTION DEPLOYMENT COMPLETED"
+        name: Deploy to Production (Self-Hosted)
+        # This will run on the same EC2 runner
+        runs-on: self-hosted
+        needs: deploy-staging
+        environment: 
+          name: production
+        steps:
+          - name: Download Build Artifact Locally
+            uses: actions/download-artifact@v4
+            with:
+              name: invoice-ninja-build
+              path: /tmp/production_artifacts
+              
+          - name: Execute Production Deployment Script
+            run: |
+              echo "PRODUCTION DEPLOYMENT STARTED (Via Self-Hosted Runner)"
+              
+              DEPLOY_PATH="/var/www/invoiceninja_production" # Example: Use a different path for production
+              TEMP_EXTRACT_PATH="/tmp/ninja_production_temp"
+              
+              ARTIFACT_FILE=$(find /tmp/production_artifacts -maxdepth 2 -name "invoice-ninja-*.tar.gz" | head -n 1)
+    
+              if [ -z "$ARTIFACT_FILE" ]; then
+                echo "Error: Artifact not found."
+                exit 1
+              fi
+              
+              # Production-specific steps
+              php artisan down --render="maintenance" 2>/dev/null || echo "Maintenance mode simulated"
+              
+              sudo mkdir -p $DEPLOY_PATH
+              sudo chown -R $USER:$USER $DEPLOY_PATH
+              
+              mkdir -p $TEMP_EXTRACT_PATH
+              tar -xzf $ARTIFACT_FILE -C $TEMP_EXTRACT_PATH
+    
+              rm -rf $DEPLOY_PATH/*
+              cp -r $TEMP_EXTRACT_PATH/. $DEPLOY_PATH/
+              
+              cd $DEPLOY_PATH || exit 1
+              
+              # Essential Production Steps (Migrate & Cache)
+              echo "Running Production Migrations and Cache..."
+              php artisan migrate --force || exit 1
+              php artisan config:cache
+              php artisan route:cache
+              php artisan view:cache
+              
+              sudo chown -R www-data:www-data storage bootstrap/cache
+              sudo chmod -R 775 storage bootstrap/cache
+              
+              php artisan up 2>/dev/null || echo "Maintenance mode disabled"
+              
+              sudo systemctl restart php8.3-fpm || true
+              sudo systemctl restart nginx || true
+              
+              rm -rf /tmp/production_artifacts
+              rm -rf $TEMP_EXTRACT_PATH
+              
+              echo "PRODUCTION DEPLOYMENT COMPLETED"
