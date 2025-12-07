@@ -231,7 +231,8 @@ jobs:
           DB_USERNAME: user
           DB_PASSWORD: password
           DB_HOST: '127.0.0.1' 
-          MAIL_MAILER: log 
+          MAIL_MAILER: log
+          APP_CYPRESS: true
     
         services:
           mysql: 
@@ -330,7 +331,10 @@ jobs:
               # This specifically targets the 'index.js' path inside the require function and fixes it to 'index.cjs'
               sed -i "s|require('./tests/cypress/plugins/index.js')|require('./tests/cypress/plugins/index.cjs')|g" cypress.config.cjs
               echo "Successfully updated plugin path inside cypress.config.cjs to use .cjs"
-          # FIX 3: Registering cy.task events for the environment variables 
+          # FIX 3: Registering cy.task events for the environment variables
+          - name: Start Backend Server
+            run: php artisan serve --host=127.0.0.1 --port=8000 &
+
           - name: Inject Cypress Task Registration (Final Placement)
             run: |
               # 1. Define the task registration code block
