@@ -115,7 +115,6 @@ jobs:
           retention-days: 7
   # --- 2. Backend Tests (SPACES FIXED) ---
   backend-tests:
-    if: false
     name: Run Backend Tests
     runs-on: ubuntu-latest
     needs: build
@@ -203,7 +202,6 @@ jobs:
         continue-on-error: true
   # --- 3. UI (Cypress) Tests (FIXED: CONFIG RENAME & SERVER START) ---
   ui-tests:
-    if: false
     name: Run UI Tests
     runs-on: ubuntu-latest
     needs: build
@@ -332,7 +330,7 @@ jobs:
   deploy-staging:
         name: Deploy to Staging
         runs-on: ubuntu-latest
-        #needs: [backend-tests, ui-tests]
+        needs: [backend-tests, ui-tests]
         if: github.ref == 'refs/heads/main'
         environment: staging
       
