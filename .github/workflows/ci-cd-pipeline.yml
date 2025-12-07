@@ -307,7 +307,8 @@ jobs:
             uses: actions/download-artifact@v4
             with:
               name: invoice-ninja-build
-              
+              path: ./artifacts  # Download artifact to a local folder
+      
           - name: Deploy via SSH to Staging Server
             uses: appleboy/ssh-action@v0.1.7
             with:
@@ -315,6 +316,8 @@ jobs:
               username: ${{ secrets.STAGING_USER }}
               key: ${{ secrets.STAGING_KEY }}
               port: ${{ secrets.STAGING_PORT }}
+              source: ./artifacts/*.tar.gz   # Transfer artifact to remote server
+              target: /tmp                  # Temporary location on server
               script: |
                 echo "STAGING DEPLOYMENT STARTED"
       
@@ -324,11 +327,15 @@ jobs:
       
                 # Clean previous content
                 rm -rf /var/www/invoiceninja/*
-                
-                # Extract artifact
-                tar -xzf invoice-ninja-*.tar.gz -C /var/www/invoiceninja
+      
+                # Move artifact to deployment folder
+                mv /tmp/invoice-ninja-*.tar.gz /var/www/invoiceninja/
       
                 cd /var/www/invoiceninja || exit 1
+      
+                # Extract artifact
+                tar -xzf invoice-ninja-*.tar.gz
+                rm invoice-ninja-*.tar.gz
       
                 # Composer & migrations
                 composer install --no-dev --optimize-autoloader || exit 1
@@ -350,6 +357,7 @@ jobs:
                 sudo systemctl restart nginx || true
       
                 echo "STAGING DEPLOYMENT COMPLETED"
+
 
 
   # --- 5. Production Deployment ---
