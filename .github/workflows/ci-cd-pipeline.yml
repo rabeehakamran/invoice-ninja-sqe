@@ -330,7 +330,7 @@ jobs:
   deploy-staging:
         name: Deploy to Staging (Self-Hosted)
         # Target the runner you just configured on the EC2 instance
-        runs-on: [self-hosted, staging-runner] 
+        runs-on: self-hosted
         needs: [build, backend-tests, ui-tests]
         if: github.ref == 'refs/heads/main'
         environment: staging
