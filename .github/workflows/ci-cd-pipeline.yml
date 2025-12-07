@@ -308,9 +308,6 @@ jobs:
             with:
               name: invoice-ninja-build
               
-          - name: Extract Artifact for Deployment
-            run: tar -xzf *.tar.gz
-              
           - name: Deploy via SSH to Staging Server
             uses: appleboy/ssh-action@v0.1.7
             with:
@@ -321,42 +318,39 @@ jobs:
               script: |
                 echo "STAGING DEPLOYMENT STARTED"
       
-                # 1️⃣ Ensure the deployment directory exists
+                # Ensure deployment directory exists
                 sudo mkdir -p /var/www/invoiceninja
                 sudo chown -R $USER:$USER /var/www/invoiceninja
       
+                # Clean previous content
+                rm -rf /var/www/invoiceninja/*
+                
+                # Extract artifact
+                tar -xzf invoice-ninja-*.tar.gz -C /var/www/invoiceninja
+      
                 cd /var/www/invoiceninja || exit 1
       
-                # 2️⃣ Initialize git if first deployment
-                if [ ! -d .git ]; then
-                  git init
-                  git remote add origin https://github.com/<your-repo>.git
-                fi
-      
-                # 3️⃣ Pull latest code
-                git fetch origin main
-                git reset --hard origin/main
-      
-                # 4️⃣ Composer & migrations
+                # Composer & migrations
                 composer install --no-dev --optimize-autoloader || exit 1
                 php artisan migrate --force || exit 1
       
-                # 5️⃣ Node.js build
+                # Node.js build
                 npm install --only=production
                 npm run build
       
-                # 6️⃣ Cache & permissions
+                # Cache & permissions
                 php artisan config:cache
                 php artisan route:cache
                 php artisan view:cache
                 sudo chown -R www-data:www-data storage bootstrap/cache
                 sudo chmod -R 775 storage bootstrap/cache
       
-                # 7️⃣ Restart services
+                # Restart services
                 sudo systemctl restart php8.3-fpm || true
                 sudo systemctl restart nginx || true
       
                 echo "STAGING DEPLOYMENT COMPLETED"
+
 
   # --- 5. Production Deployment ---
   deploy-production:
