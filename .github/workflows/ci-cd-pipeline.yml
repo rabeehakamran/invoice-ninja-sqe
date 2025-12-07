@@ -326,8 +326,7 @@ jobs:
         run: npx cypress run --config baseUrl="http://127.0.0.1:8000" --config-file cypress.config.cjs
         continue-on-error: true
 
-  # --- 4. Staging Deployment (FIXED: Artifact-based Deployment) ---
-  # --- 4. Staging Deployment (FIXED: Artifact Naming) ---
+  # --- 4. Staging Deployment (FINAL FIX ATTEMPT) ---
   deploy-staging:
         name: Deploy to Staging
         runs-on: ubuntu-latest
@@ -342,21 +341,31 @@ jobs:
               name: invoice-ninja-build
               path: /tmp/staging_artifacts 
               
-          - name: Rename Artifact for Fixed Naming
-            run: mv /tmp/staging_artifacts/invoice-ninja-*.tar.gz /tmp/staging_artifacts/invoice-ninja-deployment.tar.gz
+          # 🎯 FIX 1: Rename/Move the downloaded artifact from the inner folder to the root of the transfer path
+          - name: Prepare Artifact for Transfer
+            run: |
+              # The artifact is downloaded into a subdirectory inside /tmp/staging_artifacts
+              # We move it to the root of that path for the scp action to find it easily
+              find /tmp/staging_artifacts -type f -name 'invoice-ninja-*.tar.gz' -exec mv {} /tmp/staging_artifacts/invoice-ninja-deployment.tar.gz \;
+              # Check if the file exists after the move
+              if [ ! -f /tmp/staging_artifacts/invoice-ninja-deployment.tar.gz ]; then
+                echo "Error: Artifact file not found after preparation. Check Build job for artifact naming."
+                exit 1
+              fi
               
-          # FIX 1: Transfer Artifact to STAGING HOME Directory (~)
+          # 🎯 FIX 2: Transfer Artifact to STAGING HOME Directory (~)
           - name: Transfer Artifact to Staging Server
             uses: appleboy/scp-action@v0.1.4
             with:
               host: ${{ secrets.STAGING_HOST }}
               username: ${{ secrets.STAGING_USER }}
-              key: ${{ secrets.STAGING_KEY }}
+              key: ${{ secrets.STAGING_KEY }} # Assuming STAGING_KEY is correct
               port: ${{ secrets.STAGING_PORT }}
+              # Source is now the fixed path
               source: /tmp/staging_artifacts/invoice-ninja-deployment.tar.gz 
-              target: ~/   # <--- TARGET LOCATION CHANGED TO HOME DIRECTORY!
-      
-          # FIX 2: Execute Deployment Script (Use Home Directory as Source)
+              target: ~/
+              
+          # FIX 3: Execute Deployment Script (No changes needed, logic is fine)
           - name: Execute Deployment Script on Staging
             uses: appleboy/ssh-action@v0.1.7
             with:
@@ -369,23 +378,22 @@ jobs:
                 
                 DEPLOY_PATH="/var/www/invoiceninja"
                 TEMP_EXTRACT_PATH="/tmp/ninja_staging_temp"
-                ARTIFACT_FILE="~/invoice-ninja-deployment.tar.gz" # <--- ARTIFACT LOCATION CHANGED
+                ARTIFACT_FILE="~/invoice-ninja-deployment.tar.gz" 
                 
                 # Check if the file exists in the user's home directory
                 if [ ! -f "$ARTIFACT_FILE" ]; then
-                  echo "Error: Artifact not found at $ARTIFACT_FILE."
-                  echo "CHECKLIST: 1. Are SSH secrets correct? 2. Is SSH port open? 3. Did the transfer step fail silently?"
+                  echo "Error: Artifact not found at $ARTIFACT_FILE. SSH Transfer failed."
+                  echo "CRITICAL: Check SSH secrets (Key, User, Host) and Port 22 connectivity."
                   exit 1
                 fi
-    
+                # ... (rest of the script is correct for deployment)
+                
                 sudo mkdir -p $DEPLOY_PATH
                 sudo chown -R ${{ secrets.STAGING_USER }}:${{ secrets.STAGING_USER }} $DEPLOY_PATH
                 
                 mkdir -p $TEMP_EXTRACT_PATH
-                
-                # Extract artifact from Home Directory
                 tar -xzf $ARTIFACT_FILE -C $TEMP_EXTRACT_PATH
-    
+                
                 rm -rf $DEPLOY_PATH/*
                 cp -r $TEMP_EXTRACT_PATH/build/. $DEPLOY_PATH/
                 
@@ -394,15 +402,14 @@ jobs:
                 php artisan config:cache
                 php artisan route:cache
                 php artisan view:cache
-    
+                
                 sudo chown -R www-data:www-data storage bootstrap/cache
                 sudo chmod -R 775 storage bootstrap/cache
                 
                 sudo systemctl restart php8.3-fpm || true
                 sudo systemctl restart nginx || true
                 
-                # Cleanup
-                rm -f $ARTIFACT_FILE # Remove from home directory
+                rm -f $ARTIFACT_FILE 
                 rm -rf $TEMP_EXTRACT_PATH
                 
                 echo "STAGING DEPLOYMENT COMPLETED"
