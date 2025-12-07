@@ -201,6 +201,8 @@ jobs:
         run: vendor/bin/phpunit tests/SQE/Feature --colors=always --testdox
         continue-on-error: true
 
+  ---
+
   # --- 3. UI (Cypress) Tests ---
   ui-tests:
     name: Run UI Tests
@@ -290,6 +292,9 @@ jobs:
       - name: Run Cypress Tests
         run: npx cypress run --config baseUrl="http://127.0.0.1:8000" --config-file cypress.config.cjs
         continue-on-error: true
+
+  ---
+
   # --- 4. Staging Deployment ---
   deploy-staging:
     name: Deploy to Staging
@@ -379,6 +384,9 @@ jobs:
             rm -rf $TEMP_PATH
             
             echo "STAGING DEPLOYMENT COMPLETED"
+
+  ---
+
   # --- 5. Production Deployment ---
   deploy-production:
     name: Deploy to Production
