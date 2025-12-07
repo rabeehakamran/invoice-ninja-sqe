@@ -13,10 +13,10 @@ jobs:
   build:
     name: Build Application & Create Artifacts
     runs-on: ubuntu-latest
-
+    
     outputs:
       build-version: ${{ steps.get-version.outputs.version }}
-
+      
     steps:
       - name: Log Source Stage Information
         run: |
@@ -29,7 +29,7 @@ jobs:
           echo "Commit SHA: ${{ github.sha }}"
           echo "Triggered by: ${{ github.actor }}"
           echo "=========================================="
-
+          
       - name: Checkout Code
         uses: actions/checkout@v3
         with:
@@ -41,7 +41,7 @@ jobs:
           VERSION=$(date +%Y%m%d.%H%M%S)
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Build Version: $VERSION"
-
+          
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
@@ -76,7 +76,7 @@ jobs:
           php artisan config:clear
           php artisan cache:clear
           php artisan view:clear
-
+          
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
@@ -106,20 +106,22 @@ jobs:
           tar -czf "../$ARTIFACT_NAME.tar.gz" .
           cd ..
           echo "✅ Artifact ready: $ARTIFACT_NAME.tar.gz"
-
+          
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
           name: invoice-ninja-build
           path: ./*.tar.gz
           retention-days: 7
-
+          
+  ---
+          
   # --- 2. Backend Tests ---
   backend-tests:
     name: Run Backend Tests
     runs-on: ubuntu-latest
     needs: build
-
+    
     env:
       DB_CONNECTION: mysql
       DB_DATABASE: ninja
@@ -128,9 +130,9 @@ jobs:
       DB_HOST: '127.0.0.1'
       REDIS_HOST: '127.0.0.1'
       REDIS_PORT: 6379
-      CACHE_DRIVER: array
-      QUEUE_CONNECTION: sync
-      SESSION_DRIVER: array
+      CACHE_DRIVER: array      
+      QUEUE_CONNECTION: sync    
+      SESSION_DRIVER: array     
       MAIL_MAILER: log
 
     services:
@@ -161,10 +163,10 @@ jobs:
           php-version: '8.3'
           extensions: mysql, sqlite3, bcmath, gmp, gd, curl, zip, openssl, mbstring, xml, redis
           coverage: none
-
+      
       - name: Install Composer Dependencies
         run: composer install --no-progress --prefer-dist --optimize-autoloader --no-scripts
-
+      
       - name: Wait for Database Service
         run: |
           echo "Waiting for MariaDB..."
@@ -176,14 +178,14 @@ jobs:
             sleep 1
           done
           exit 1
-
+        
       - name: Create Storage Directories & Set Permissions
         run: |
           mkdir -p storage/framework/{cache,sessions,views}
           mkdir -p storage/app/public
           mkdir -p bootstrap/cache
           chmod -R 777 storage bootstrap/cache
-
+          
       - name: Setup Laravel Environment & Migrate DB
         run: |
           cp .env.example .env
@@ -193,7 +195,7 @@ jobs:
           php artisan ninja:post-update || true
           php artisan optimize || true
           php artisan migrate --force
-
+          
       - name: Run Custom SQE Unit Tests
         run: vendor/bin/phpunit tests/SQE/Unit --colors=always --testdox
         continue-on-error: true
@@ -202,24 +204,27 @@ jobs:
         run: vendor/bin/phpunit tests/SQE/Feature --colors=always --testdox
         continue-on-error: true
 
+  ---
+
   # --- 3. UI (Cypress) Tests ---
   ui-tests:
     name: Run UI Tests
     runs-on: ubuntu-latest
     needs: build
     continue-on-error: true
+    
     env:
       DB_CONNECTION: mysql
       DB_DATABASE: ninja
       DB_USERNAME: user
       DB_PASSWORD: password
-      DB_HOST: '127.0.0.1'
-      MAIL_MAILER: log
+      DB_HOST: '127.0.0.1' 
+      MAIL_MAILER: log 
       APP_ENV: testing
       APP_CYPRESS: true
 
     services:
-      mysql:
+      mysql: 
         image: mysql:8.0
         ports:
           - 3306:3306
@@ -259,14 +264,14 @@ jobs:
             sleep 1
           done
           exit 1
-
+          
       - name: Create Storage Directories & Set Permissions
         run: |
           mkdir -p storage/framework/{cache,sessions,views}
           mkdir -p storage/app/public
           mkdir -p bootstrap/cache
           chmod -R 777 storage bootstrap/cache
-
+          
       - name: Setup Laravel Environment, Migrate & Seed DB
         run: |
           cp .env.example .env
@@ -283,90 +288,107 @@ jobs:
 
       - name: Install Node Dependencies
         run: npm install
-
+          
       - name: Build Frontend Assets
         run: npm run build
-
+          
       - name: Run Cypress Tests
         run: npx cypress run --config baseUrl="http://127.0.0.1:8000" --config-file cypress.config.cjs
         continue-on-error: true
 
+  ---
+
   # --- 4. Staging Deployment ---
   deploy-staging:
-        name: Deploy to Staging
-        runs-on: ubuntu-latest
-        needs: [backend-tests, ui-tests]
-        if: github.ref == 'refs/heads/main'
-        environment: staging
-      
-        steps:
-          - name: Download Build Artifact
-            uses: actions/download-artifact@v4
-            with:
-              name: invoice-ninja-build
-              path: /tmp/artifacts
-    
-          # 1. SSH Action for File Transfer ONLY (Local Runner -> Remote Server)
-          - name: Transfer Artifact to Staging Server
-            uses: appleboy/ssh-action@v0.1.7
-            with:
-              host: ${{ secrets.STAGING_HOST }}
-              username: ${{ secrets.STAGING_USER }}
-              key: ${{ secrets.STAGING_KEY }}
-              port: ${{ secrets.STAGING_PORT }}
-              # Source is the local path on the GitHub Runner machine
-              source: /tmp/artifacts/*.tar.gz 
-              # Target is the temporary path on the Remote Server
-              target: /tmp                 
-    
-          # 2. SSH Action for Script Execution ONLY (Remote Server)
-          - name: Execute Deployment Script on Staging
-            uses: appleboy/ssh-action@v0.1.7
-            with:
-              host: ${{ secrets.STAGING_HOST }}
-              username: ${{ secrets.STAGING_USER }}
-              key: ${{ secrets.STAGING_KEY }}
-              port: ${{ secrets.STAGING_PORT }}
-              script: |
-                echo "STAGING DEPLOYMENT STARTED"
-                
-                # Ensure deployment directory exists and set ownership
-                sudo mkdir -p /var/www/invoiceninja
-                sudo chown -R ${{ secrets.STAGING_USER }}:${{ secrets.STAGING_USER }} /var/www/invoiceninja
-                
-                # Clean previous content
-                rm -rf /var/www/invoiceninja/*
-                
-                # Move artifact from the remote /tmp/ to the deployment folder
-                # The file is guaranteed to be in /tmp/ on the remote server
-                mv /tmp/invoice-ninja-*.tar.gz /var/www/invoiceninja/
-                
-                cd /var/www/invoiceninja || exit 1
-                
-                # Extract artifact
-                tar -xzf invoice-ninja-*.tar.gz
-                rm invoice-ninja-*.tar.gz
-                
-                # Composer & migrations
-                composer install --no-dev --optimize-autoloader || exit 1
-                php artisan migrate --force || exit 1
-                
-                # Node.js build
-                npm install --only=production
-                npm run build
-                
-                # Cache & permissions
-                php artisan config:cache
-                php artisan route:cache
-                php artisan view:cache
-                sudo chown -R www-data:www-data storage bootstrap/cache
-                sudo chmod -R 775 storage bootstrap/cache
-                
-                # Restart services
-                sudo systemctl restart php8.3-fpm || true
-                sudo systemctl restart nginx || true
-                
-                echo "STAGING DEPLOYMENT COMPLETED"
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [backend-tests, ui-tests]
+    if: github.ref == 'refs/heads/main'
+    environment: staging
+  
+    steps:
+      - name: Download Build Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: invoice-ninja-build
+          path: /tmp/artifacts
+  
+      # 1. SSH Action for File Transfer ONLY (Local Runner -> Remote Server)
+      - name: Transfer Artifact to Staging Server
+        uses: appleboy/ssh-action@v0.1.7
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_KEY }}
+          port: ${{ secrets.STAGING_PORT }}
+          # Source is the local path on the GitHub Runner machine
+          source: /tmp/artifacts/*.tar.gz 
+          # Target is the temporary path on the Remote Server
+          target: /tmp                 
+  
+      # 2. SSH Action for Script Execution ONLY (Remote Server)
+      - name: Execute Deployment Script on Staging
+        uses: appleboy/ssh-action@v0.1.7
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_KEY }}
+          port: ${{ secrets.STAGING_PORT }}
+          script: |
+            echo "STAGING DEPLOYMENT STARTED"
+            
+            # Define deployment path
+            DEPLOY_PATH="/var/www/invoiceninja"
+            TEMP_PATH="/tmp/ninja_deploy"
+            ARTIFACT_FILE="/tmp/invoice-ninja-*.tar.gz"
+            
+            # 1. Prepare deployment directories
+            sudo mkdir -p $DEPLOY_PATH
+            sudo chown -R ${{ secrets.STAGING_USER }}:${{ secrets.STAGING_USER }} $DEPLOY_PATH
+            
+            # 2. Create and change to temporary extraction directory
+            mkdir -p $TEMP_PATH
+            cd $TEMP_PATH || exit 1
+            
+            # 3. Extract artifact (The .tar.gz file is in /tmp)
+            mv $ARTIFACT_FILE .
+            tar -xzf invoice-ninja-*.tar.gz
+            rm invoice-ninja-*.tar.gz
+            
+            # 4. Move extracted contents to final deployment path
+            # We assume the extracted content is at the root of TEMP_PATH
+            rm -rf $DEPLOY_PATH/*
+            mv * $DEPLOY_PATH/
+            
+            # 5. Run post-deployment steps in the final path
+            cd $DEPLOY_PATH || exit 1
+            
+            # Composer & migrations (Now composer.json is available here)
+            composer install --no-dev --optimize-autoloader || exit 1
+            php artisan migrate --force || exit 1
+            
+            # Node.js build (If needed for post-build setup)
+            # npm install --only=production
+            # npm run build
+            
+            # Cache & permissions
+            php artisan config:cache
+            php artisan route:cache
+            php artisan view:cache
+            # Set permissions for web server (www-data)
+            sudo chown -R www-data:www-data storage bootstrap/cache
+            sudo chmod -R 775 storage bootstrap/cache
+            
+            # Restart services
+            sudo systemctl restart php8.3-fpm || true
+            sudo systemctl restart nginx || true
+            
+            # 6. Clean up temporary directory
+            rm -rf $TEMP_PATH
+            
+            echo "STAGING DEPLOYMENT COMPLETED"
+
+  ---
 
   # --- 5. Production Deployment ---
   deploy-production:
@@ -383,8 +405,20 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: invoice-ninja-build
-          path: ./artifacts
+          path: /tmp/artifacts # Use /tmp/artifacts for consistency
 
+      # 1. SSH Action for File Transfer ONLY (Local Runner -> Remote Server)
+      - name: Transfer Artifact to Production Server
+        uses: appleboy/ssh-action@v0.1.7
+        with:
+          host: ${{ secrets.PRODUCTION_HOST }}
+          username: ${{ secrets.PRODUCTION_USER }}
+          key: ${{ secrets.PRODUCTION_KEY }}
+          port: ${{ secrets.PRODUCTION_PORT }}
+          source: /tmp/artifacts/*.tar.gz 
+          target: /tmp
+      
+      # 2. SSH Action for Script Execution ONLY (Remote Server)
       - name: Execute Deployment Script on Production
         uses: appleboy/ssh-action@v0.1.7
         with:
@@ -394,22 +428,54 @@ jobs:
           port: ${{ secrets.PRODUCTION_PORT }}
           script: |
             echo "PRODUCTION DEPLOYMENT STARTED"
+            
+            # Define deployment path
+            DEPLOY_PATH="/var/www/invoiceninja"
+            TEMP_PATH="/tmp/ninja_deploy_prod"
+            ARTIFACT_FILE="/tmp/invoice-ninja-*.tar.gz"
+
+            # 1. Enable Maintenance mode
             php artisan down --render="maintenance" 2>/dev/null || echo "Maintenance mode simulated"
-            sudo mkdir -p /var/www/invoiceninja
-            sudo chown -R ${{ secrets.PRODUCTION_USER }}:${{ secrets.PRODUCTION_USER }} /var/www/invoiceninja
-            rm -rf /var/www/invoiceninja/*
-            mv ./artifacts/invoice-ninja-*.tar.gz /var/www/invoiceninja/
-            cd /var/www/invoiceninja || exit 1
+            
+            # 2. Prepare directories
+            sudo mkdir -p $DEPLOY_PATH
+            sudo chown -R ${{ secrets.PRODUCTION_USER }}:${{ secrets.PRODUCTION_USER }} $DEPLOY_PATH
+            
+            # 3. Create and change to temporary extraction directory
+            mkdir -p $TEMP_PATH
+            cd $TEMP_PATH || exit 1
+
+            # 4. Extract artifact
+            mv $ARTIFACT_FILE .
             tar -xzf invoice-ninja-*.tar.gz
             rm invoice-ninja-*.tar.gz
+            
+            # 5. Move extracted contents to final deployment path
+            rm -rf $DEPLOY_PATH/*
+            mv * $DEPLOY_PATH/
+            
+            # 6. Run post-deployment steps in the final path
+            cd $DEPLOY_PATH || exit 1
+            
+            # Composer & migrations
             composer install --no-dev --optimize-autoloader || exit 1
             php artisan migrate --force || exit 1
+            
+            # Cache & permissions
             php artisan config:cache
             php artisan route:cache
             php artisan view:cache
             sudo chown -R www-data:www-data storage bootstrap/cache
             sudo chmod -R 775 storage bootstrap/cache
+            
+            # 7. Disable Maintenance mode
             php artisan up 2>/dev/null || echo "Maintenance mode disabled"
+            
+            # 8. Restart services
             sudo systemctl restart php8.3-fpm || true
             sudo systemctl restart nginx || true
+            
+            # 9. Clean up temporary directory
+            rm -rf $TEMP_PATH
+
             echo "PRODUCTION DEPLOYMENT COMPLETED"
