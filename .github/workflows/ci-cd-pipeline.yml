@@ -1,5 +1,6 @@
 name: Invoice Ninja CI/CD Pipeline
-#Chal jao please
+# Chal jao please
+
 on:
   push:
     branches:
@@ -9,7 +10,7 @@ on:
       - main
 
 jobs:
-  # --- 1. Build Stage ---
+  # --- 1. Build Stage (No Change Needed) ---
   build:
     name: Build Application & Create Artifacts
     runs-on: ubuntu-latest
@@ -113,7 +114,9 @@ jobs:
           name: invoice-ninja-build
           path: ./*.tar.gz
           retention-days: 7
-  # --- 2. Backend Tests ---
+
+  ---
+  # --- 2. Backend Tests (No Change Needed) ---
   backend-tests:
     name: Run Backend Tests
     runs-on: ubuntu-latest
@@ -186,6 +189,12 @@ jobs:
       - name: Setup Laravel Environment & Migrate DB
         run: |
           cp .env.example .env
+          sed -i "s/DB_HOST=127.0.0.1/DB_HOST=127.0.0.1/" .env
+          sed -i "s/DB_PORT=3306/DB_PORT=3306/" .env
+          sed -i "s/DB_DATABASE=laravel/DB_DATABASE=ninja/" .env
+          sed -i "s/DB_USERNAME=root/DB_USERNAME=root/" .env
+          sed -i "s/DB_PASSWORD=/DB_PASSWORD=ninja/" .env
+          
           php artisan key:generate
           php artisan config:clear
           php artisan package:discover --ansi
@@ -203,12 +212,12 @@ jobs:
 
   ---
 
-  # --- 3. UI (Cypress) Tests ---
+  # --- 3. UI (Cypress) Tests (FIXED: Server Start & Naming) ---
   ui-tests:
     name: Run UI Tests
     runs-on: ubuntu-latest
     needs: build
-    continue-on-error: true
+    continue-on-error: true # Keep this so deployment doesn't stop
     
     env:
       DB_CONNECTION: mysql
@@ -272,6 +281,12 @@ jobs:
       - name: Setup Laravel Environment, Migrate & Seed DB
         run: |
           cp .env.example .env
+          sed -i "s/DB_HOST=127.0.0.1/DB_HOST=127.0.0.1/" .env
+          sed -i "s/DB_PORT=3306/DB_PORT=3306/" .env
+          sed -i "s/DB_DATABASE=laravel/DB_DATABASE=ninja/" .env
+          sed -i "s/DB_USERNAME=root/DB_USERNAME=user/" .env
+          sed -i "s/DB_PASSWORD=/DB_PASSWORD=password/" .env
+          
           php artisan key:generate
           php artisan config:clear
           php artisan package:discover --ansi
@@ -288,14 +303,32 @@ jobs:
           
       - name: Build Frontend Assets
         run: npm run build
+        
+      # FIX 1: Add missing server start and wait logic
+      - name: Start Laravel Server (Testing Environment)
+        run: php artisan serve --env=testing --host=127.0.0.1 --port=8000 &
+        
+      - name: Wait for Laravel Server (Shell Script)
+        run: |
+          echo "Waiting for Laravel server (127.0.0.1:8000)..."
+          timeout=60
+          for i in $(seq 1 $timeout); do
+            curl --silent --fail http://127.0.0.1:8000 > /dev/null
+            if [ $? -eq 0 ]; then
+              echo "Server is ready!"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Server failed to start after 60 seconds."
+          exit 1
           
       - name: Run Cypress Tests
-        run: npx cypress run --config baseUrl="http://127.0.0.1:8000" --config-file cypress.config.cjs
+        run: npx cypress run --config baseUrl="http://127.0.0.1:8000"
         continue-on-error: true
 
   ---
-
-  # --- 4. Staging Deployment ---
+  # --- 4. Staging Deployment (FIXED: Artifact-based Deployment) ---
   deploy-staging:
     name: Deploy to Staging
     runs-on: ubuntu-latest
@@ -308,9 +341,9 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: invoice-ninja-build
-          path: /tmp/artifacts
-  
-      # 1. SSH Action for File Transfer ONLY (Local Runner -> Remote Server)
+          path: /tmp/staging_artifacts 
+          
+      # FIX: Use scp capability of appleboy/ssh-action to transfer the artifact
       - name: Transfer Artifact to Staging Server
         uses: appleboy/ssh-action@v0.1.7
         with:
@@ -318,12 +351,12 @@ jobs:
           username: ${{ secrets.STAGING_USER }}
           key: ${{ secrets.STAGING_KEY }}
           port: ${{ secrets.STAGING_PORT }}
-          # Source is the local path on the GitHub Runner machine
-          source: /tmp/artifacts/*.tar.gz 
+          # Source is the path on the GitHub Runner machine
+          source: /tmp/staging_artifacts/*.tar.gz
           # Target is the temporary path on the Remote Server
-          target: /tmp                 
+          target: /tmp 
   
-      # 2. SSH Action for Script Execution ONLY (Remote Server)
+      # FIX: Execute script on server to extract and deploy the artifact
       - name: Execute Deployment Script on Staging
         uses: appleboy/ssh-action@v0.1.7
         with:
@@ -334,45 +367,38 @@ jobs:
           script: |
             echo "STAGING DEPLOYMENT STARTED"
             
-            # Define deployment path
             DEPLOY_PATH="/var/www/invoiceninja"
-            TEMP_PATH="/tmp/ninja_deploy"
-            ARTIFACT_FILE="/tmp/invoice-ninja-*.tar.gz"
+            TEMP_EXTRACT_PATH="/tmp/ninja_staging_temp"
+            ARTIFACT_FILE=$(find /tmp -maxdepth 1 -name "invoice-ninja-*.tar.gz" | head -n 1) # Find the transferred file
             
-            # 1. Prepare deployment directories
+            if [ -z "$ARTIFACT_FILE" ]; then
+              echo "Error: Artifact not found in /tmp. Deployment aborted."
+              exit 1
+            fi
+
+            # 1. Prepare target directory
             sudo mkdir -p $DEPLOY_PATH
             sudo chown -R ${{ secrets.STAGING_USER }}:${{ secrets.STAGING_USER }} $DEPLOY_PATH
             
-            # 2. Create and change to temporary extraction directory
-            mkdir -p $TEMP_PATH
-            cd $TEMP_PATH || exit 1
-            
-            # 3. Extract artifact (The .tar.gz file is in /tmp)
-            mv $ARTIFACT_FILE .
-            tar -xzf invoice-ninja-*.tar.gz
-            rm invoice-ninja-*.tar.gz
-            
-            # 4. Move extracted contents to final deployment path
-            # We assume the extracted content is at the root of TEMP_PATH
+            # 2. Extract artifact
+            mkdir -p $TEMP_EXTRACT_PATH
+            tar -xzf $ARTIFACT_FILE -C $TEMP_EXTRACT_PATH
+
+            # 3. Deploy by swapping/copying
+            # IMPORTANT: This assumes $DEPLOY_PATH is the webroot
             rm -rf $DEPLOY_PATH/*
-            mv * $DEPLOY_PATH/
+            cp -r $TEMP_EXTRACT_PATH/build/. $DEPLOY_PATH/
             
-            # 5. Run post-deployment steps in the final path
+            # 4. Run post-deployment steps (Configuration/Cleanup)
             cd $DEPLOY_PATH || exit 1
             
-            # Composer & migrations (Now composer.json is available here)
-            composer install --no-dev --optimize-autoloader || exit 1
-            php artisan migrate --force || exit 1
-            
-            # Node.js build (If needed for post-build setup)
-            # npm install --only=production
-            # npm run build
-            
-            # Cache & permissions
+            # Run post-update scripts (Composer/Node steps are already done in Build)
+            # You might need to adjust this depending on what files were included in your artifact
             php artisan config:cache
             php artisan route:cache
             php artisan view:cache
-            # Set permissions for web server (www-data)
+
+            # Set permissions for web server
             sudo chown -R www-data:www-data storage bootstrap/cache
             sudo chmod -R 775 storage bootstrap/cache
             
@@ -380,14 +406,14 @@ jobs:
             sudo systemctl restart php8.3-fpm || true
             sudo systemctl restart nginx || true
             
-            # 6. Clean up temporary directory
-            rm -rf $TEMP_PATH
+            # 5. Cleanup
+            rm -f $ARTIFACT_FILE
+            rm -rf $TEMP_EXTRACT_PATH
             
             echo "STAGING DEPLOYMENT COMPLETED"
 
   ---
-
-  # --- 5. Production Deployment ---
+  # --- 5. Production Deployment (FIXED: Artifact-based Deployment) ---
   deploy-production:
     name: Deploy to Production
     runs-on: ubuntu-latest
@@ -402,9 +428,8 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: invoice-ninja-build
-          path: /tmp/artifacts # Use /tmp/artifacts for consistency
+          path: /tmp/production_artifacts
 
-      # 1. SSH Action for File Transfer ONLY (Local Runner -> Remote Server)
       - name: Transfer Artifact to Production Server
         uses: appleboy/ssh-action@v0.1.7
         with:
@@ -412,10 +437,9 @@ jobs:
           username: ${{ secrets.PRODUCTION_USER }}
           key: ${{ secrets.PRODUCTION_KEY }}
           port: ${{ secrets.PRODUCTION_PORT }}
-          source: /tmp/artifacts/*.tar.gz 
+          source: /tmp/production_artifacts/*.tar.gz 
           target: /tmp
-      
-      # 2. SSH Action for Script Execution ONLY (Remote Server)
+
       - name: Execute Deployment Script on Production
         uses: appleboy/ssh-action@v0.1.7
         with:
@@ -426,53 +450,52 @@ jobs:
           script: |
             echo "PRODUCTION DEPLOYMENT STARTED"
             
-            # Define deployment path
             DEPLOY_PATH="/var/www/invoiceninja"
-            TEMP_PATH="/tmp/ninja_deploy_prod"
-            ARTIFACT_FILE="/tmp/invoice-ninja-*.tar.gz"
+            TEMP_EXTRACT_PATH="/tmp/ninja_production_temp"
+            ARTIFACT_FILE=$(find /tmp -maxdepth 1 -name "invoice-ninja-*.tar.gz" | head -n 1) # Find the transferred file
+            
+            if [ -z "$ARTIFACT_FILE" ]; then
+              echo "Error: Artifact not found in /tmp. Deployment aborted."
+              exit 1
+            fi
 
             # 1. Enable Maintenance mode
             php artisan down --render="maintenance" 2>/dev/null || echo "Maintenance mode simulated"
             
-            # 2. Prepare directories
+            # 2. Prepare target directory
             sudo mkdir -p $DEPLOY_PATH
             sudo chown -R ${{ secrets.PRODUCTION_USER }}:${{ secrets.PRODUCTION_USER }} $DEPLOY_PATH
             
-            # 3. Create and change to temporary extraction directory
-            mkdir -p $TEMP_PATH
-            cd $TEMP_PATH || exit 1
+            # 3. Extract artifact
+            mkdir -p $TEMP_EXTRACT_PATH
+            tar -xzf $ARTIFACT_FILE -C $TEMP_EXTRACT_PATH
 
-            # 4. Extract artifact
-            mv $ARTIFACT_FILE .
-            tar -xzf invoice-ninja-*.tar.gz
-            rm invoice-ninja-*.tar.gz
-            
-            # 5. Move extracted contents to final deployment path
+            # 4. Deploy by swapping/copying
             rm -rf $DEPLOY_PATH/*
-            mv * $DEPLOY_PATH/
+            cp -r $TEMP_EXTRACT_PATH/build/. $DEPLOY_PATH/
             
-            # 6. Run post-deployment steps in the final path
+            # 5. Run post-deployment steps (Configuration/Cleanup)
             cd $DEPLOY_PATH || exit 1
             
-            # Composer & migrations
-            composer install --no-dev --optimize-autoloader || exit 1
+            # Run post-update scripts
             php artisan migrate --force || exit 1
-            
-            # Cache & permissions
             php artisan config:cache
             php artisan route:cache
             php artisan view:cache
+
+            # Set permissions for web server
             sudo chown -R www-data:www-data storage bootstrap/cache
             sudo chmod -R 775 storage bootstrap/cache
             
-            # 7. Disable Maintenance mode
+            # 6. Disable Maintenance mode
             php artisan up 2>/dev/null || echo "Maintenance mode disabled"
             
-            # 8. Restart services
+            # 7. Restart services
             sudo systemctl restart php8.3-fpm || true
             sudo systemctl restart nginx || true
             
-            # 9. Clean up temporary directory
-            rm -rf $TEMP_PATH
+            # 8. Cleanup
+            rm -f $ARTIFACT_FILE
+            rm -rf $TEMP_EXTRACT_PATH
 
             echo "PRODUCTION DEPLOYMENT COMPLETED"
