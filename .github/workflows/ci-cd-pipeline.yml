@@ -326,101 +326,81 @@ jobs:
         run: npx cypress run --config baseUrl="http://127.0.0.1:8000" --config-file cypress.config.cjs
         continue-on-error: true
 
-  # --- 4. Staging Deployment (FINAL FIX - File Path Guaranteed) ---
+  # --- 4. Staging Deployment (Using Self-Hosted Runner) ---
   deploy-staging:
-        name: Deploy to Staging
-        runs-on: ubuntu-latest
-        needs: [backend-tests, ui-tests]
+        name: Deploy to Staging (Self-Hosted)
+        # Target the runner you just configured on the EC2 instance
+        runs-on: [self-hosted, staging-runner] 
+        needs: [build, backend-tests, ui-tests]
         if: github.ref == 'refs/heads/main'
         environment: staging
       
         steps:
-          - name: Download Build Artifact
+          - name: Download Build Artifact Locally (on the EC2 server)
+            # Artifacts are downloaded directly into the runner's workspace on EC2
             uses: actions/download-artifact@v4
             with:
               name: invoice-ninja-build
-              path: /tmp/staging_artifacts 
+              path: /tmp/deployment_temp # Downloaded to EC2's /tmp folder
               
-          # 🎯 FIX: Prepare Artifact for Transfer (Robust File Finding)
-          - name: Prepare Artifact for Transfer
+          - name: Execute Deployment Script (Local Execution on EC2)
             run: |
-              ARTIFACT_DIR="/tmp/staging_artifacts"
-              TARGET_FILE="$ARTIFACT_DIR/invoice-ninja-deployment.tar.gz"
+              echo "STAGING DEPLOYMENT STARTED (Via Self-Hosted Runner)"
               
-              echo "Searching for the artifact file in $ARTIFACT_DIR..."
+              # Deployment paths
+              DEPLOY_PATH="/var/www/invoiceninja"
+              TEMP_EXTRACT_PATH="/tmp/ninja_staging_temp"
               
-              # Find the actual .tar.gz file, checking both root and subdirectory
-              ACTUAL_FILE=$(find $ARTIFACT_DIR -maxdepth 2 -name 'invoice-ninja-*.tar.gz' -print -quit)
+              # 1. Find the actual artifact file
+              # The file name includes the version number, so we use find.
+              # We search up to maxdepth 2 because the download action sometimes creates a subdirectory.
+              ARTIFACT_FILE=$(find /tmp/deployment_temp -maxdepth 2 -name "invoice-ninja-*.tar.gz" | head -n 1)
     
-              if [ -z "$ACTUAL_FILE" ]; then
-                  echo "Error: Actual artifact file (*.tar.gz) not found after download."
-                  echo "Check if the 'build' job successfully uploaded the artifact."
-                  exit 1
+              if [ -z "$ARTIFACT_FILE" ]; then
+                echo "Error: Artifact not found in deployment directory. Aborting."
+                exit 1
               fi
+    
+              echo "Found artifact: $ARTIFACT_FILE"
+    
+              # 2. Setup deployment directories and permissions
+              # The runner user (ubuntu/ec2-user) must have sudo access to /var/www
+              sudo mkdir -p $DEPLOY_PATH
+              # Give current runner user temporary ownership to manage files
+              sudo chown -R $USER:$USER $DEPLOY_PATH 
               
-              # Move the found file to the fixed target path
-              mv "$ACTUAL_FILE" "$TARGET_FILE"
+              mkdir -p $TEMP_EXTRACT_PATH
               
-              echo "✅ Artifact found and prepared at $TARGET_FILE"
+              # 3. Extract the file locally
+              echo "Extracting content..."
+              tar -xzf $ARTIFACT_FILE -C $TEMP_EXTRACT_PATH
               
-          # Transfer Artifact
-          - name: Transfer Artifact to Staging Server
-            uses: appleboy/scp-action@v0.1.4
-            with:
-              host: ${{ secrets.STAGING_HOST }}
-              username: ${{ secrets.STAGING_USER }}
-              key: ${{ secrets.STAGING_KEY }}
-              port: ${{ secrets.STAGING_PORT }}
-              # Source is now the fixed path
-              source: /tmp/staging_artifacts/invoice-ninja-deployment.tar.gz 
-              target: ~/
+              # 4. Copy extracted contents to the web path
+              rm -rf $DEPLOY_PATH/*
+              cp -r $TEMP_EXTRACT_PATH/build/. $DEPLOY_PATH/
               
-          # Execute Deployment Script
-          - name: Execute Deployment Script on Staging
-            uses: appleboy/ssh-action@v0.1.7
-            with:
-              host: ${{ secrets.STAGING_HOST }}
-              username: ${{ secrets.STAGING_USER }}
-              key: ${{ secrets.STAGING_KEY }}
-              port: ${{ secrets.STAGING_PORT }}
-              script: |
-                echo "STAGING DEPLOYMENT STARTED"
-                
-                DEPLOY_PATH="/var/www/invoiceninja"
-                TEMP_EXTRACT_PATH="/tmp/ninja_staging_temp"
-                ARTIFACT_FILE="~/invoice-ninja-deployment.tar.gz" 
-                
-                if [ ! -f "$ARTIFACT_FILE" ]; then
-                  echo "Error: Artifact not found at $ARTIFACT_FILE. SSH Transfer failed."
-                  echo "CRITICAL: Check SSH secrets (Key, User, Host) and Port 22 connectivity."
-                  exit 1
-                fi
-                
-                sudo mkdir -p $DEPLOY_PATH
-                sudo chown -R ${{ secrets.STAGING_USER }}:${{ secrets.STAGING_USER }} $DEPLOY_PATH
-                
-                mkdir -p $TEMP_EXTRACT_PATH
-                tar -xzf $ARTIFACT_FILE -C $TEMP_EXTRACT_PATH
-                
-                rm -rf $DEPLOY_PATH/*
-                cp -r $TEMP_EXTRACT_PATH/build/. $DEPLOY_PATH/
-                
-                cd $DEPLOY_PATH || exit 1
-                
-                php artisan config:cache
-                php artisan route:cache
-                php artisan view:cache
-                
-                sudo chown -R www-data:www-data storage bootstrap/cache
-                sudo chmod -R 775 storage bootstrap/cache
-                
-                sudo systemctl restart php8.3-fpm || true
-                sudo systemctl restart nginx || true
-                
-                rm -f $ARTIFACT_FILE 
-                rm -rf $TEMP_EXTRACT_PATH
-                
-                echo "STAGING DEPLOYMENT COMPLETED"
+              cd $DEPLOY_PATH || exit 1
+              
+              # 5. Run Laravel Optimization and Cache
+              echo "Running Laravel Optimizations..."
+              php artisan config:cache
+              php artisan route:cache
+              php artisan view:cache
+    
+              # 6. Fix final permissions for web server (www-data)
+              sudo chown -R www-data:www-data storage bootstrap/cache
+              sudo chmod -R 775 storage bootstrap/cache
+              
+              # 7. Restart services (essential for new code to run)
+              echo "Restarting services..."
+              sudo systemctl restart php8.3-fpm || true
+              sudo systemctl restart nginx || true
+              
+              # 8. Cleanup
+              rm -rf /tmp/deployment_temp
+              rm -rf $TEMP_EXTRACT_PATH
+              
+              echo "STAGING DEPLOYMENT COMPLETED SUCCESSFULLY"
   # --- 5. Production Deployment ---
   deploy-production:
     name: Deploy to Production
