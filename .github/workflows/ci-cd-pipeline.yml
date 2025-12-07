@@ -113,9 +113,6 @@ jobs:
           name: invoice-ninja-build
           path: ./*.tar.gz
           retention-days: 7
-          
-  ---
-          
   # --- 2. Backend Tests ---
   backend-tests:
     name: Run Backend Tests
