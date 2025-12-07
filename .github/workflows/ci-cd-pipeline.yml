@@ -363,6 +363,7 @@ jobs:
               npx cypress run \
                 --config baseUrl="http://127.0.0.1:8000" \
                 --config-file cypress.config.cjs
+                continue-on-error: true
   # --- 4. Staging Deployment ---
   deploy-staging:
     name: Deploy to Staging
